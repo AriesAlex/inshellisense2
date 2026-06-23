@@ -58,6 +58,9 @@ export class ISTerm implements IPty {
   cwd: string = "";
   cursorHidden: boolean = false;
   cursorShift: number = 0;
+  #alternateBuffer = false;
+  #alternateBufferTail = "";
+  #alternateBufferOutput = false;
 
   readonly #pty: IPty;
   readonly #ptyEmitter: EventEmitter;
@@ -91,6 +94,9 @@ export class ISTerm implements IPty {
 
     this.#ptyEmitter = new EventEmitter();
     this.#pty.onData((data) => {
+      const wasAlternateBuffer = this.#alternateBuffer;
+      const hasAlternateBufferSequence = this._handleAlternateBuffer(data);
+      this.#alternateBufferOutput = wasAlternateBuffer || this.#alternateBuffer || hasAlternateBufferSequence;
       const cursorY = this.#term.buffer.active.cursorY;
       this.#term.write(data, () => {
         if (data.includes(ansi.cursorHide)) {
@@ -168,6 +174,17 @@ export class ISTerm implements IPty {
     return true;
   }
 
+  private _handleAlternateBuffer(data: string): boolean {
+    const text = this.#alternateBufferTail + data;
+    let matched = false;
+    for (const match of text.matchAll(/\x1b\[\?(?:47|1047|1049)([hl])/g)) {
+      matched = true;
+      this.#alternateBuffer = match[1] === "h";
+    }
+    this.#alternateBufferTail = text.slice(-16);
+    return matched;
+  }
+
   noop() {
     this.#ptyEmitter.emit(ISTermOnDataEvent, "");
   }
@@ -214,6 +231,14 @@ export class ISTerm implements IPty {
       hidden: this.cursorHidden,
       shift: this.cursorShift,
     };
+  }
+
+  isAlternateBuffer(): boolean {
+    return this.#alternateBuffer || this.#term.buffer.active.type === "alternate";
+  }
+
+  isAlternateBufferOutput(): boolean {
+    return this.#alternateBufferOutput;
   }
 
   private _sameAccent(baseCell: ICellData | undefined, targetCell: ICellData | undefined) {

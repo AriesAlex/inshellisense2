@@ -31,6 +31,11 @@ const _render = (term: ISTerm, suggestionManager: SuggestionManager, data: strin
   const { hidden: cursorHidden, shift: cursorShift } = term.getCursorState();
   const linesOfInterest = getMaxLines();
 
+  if (term.isAlternateBuffer()) {
+    writeOutput(data);
+    return false;
+  }
+
   const suggestion = suggestionManager.render(direction);
   const hasSuggestion = suggestion.length != 0;
 
@@ -93,6 +98,13 @@ export const render = async (program: Command, shell: Shell, underTest: boolean,
 
   term.onData(async (data) => {
     data = data.replace(enableWin32InputMode, ""); // remove win32-input-mode enable sequence if it comes through data
+    if (term.isAlternateBufferOutput()) {
+      writeOutput(data);
+      hasSuggestion = false;
+      handlingBackspace = false;
+      direction = _direction(term);
+      return;
+    }
 
     const handlingDirectionChange = direction != _direction(term);
     // clear the previous suggestion if the direction has changed to avoid leftover suggestions
@@ -110,6 +122,11 @@ export const render = async (program: Command, shell: Shell, underTest: boolean,
 
   process.stdin.on("keypress", (...keyPress: KeyPressEvent) => {
     const press = keyPress[1];
+    if (term.isAlternateBuffer()) {
+      term.write(press.sequence);
+      return;
+    }
+
     const inputHandled = suggestionManager.update(press);
     if (hasSuggestion && inputHandled) {
       term.noop();

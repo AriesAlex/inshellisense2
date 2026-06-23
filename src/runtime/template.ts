@@ -4,11 +4,19 @@
 import fsAsync from "node:fs/promises";
 import log from "../utils/log.js";
 
+const hiddenLast = (a: { name: string }, b: { name: string }): number => {
+  const aHidden = a.name.startsWith(".");
+  const bHidden = b.name.startsWith(".");
+  if (aHidden !== bHidden) return aHidden ? 1 : -1;
+  return a.name.localeCompare(b.name);
+};
+
 const filepathsTemplate = async (cwd: string, signal?: AbortSignal): Promise<Fig.TemplateSuggestion[]> => {
   signal?.throwIfAborted();
   const files = await fsAsync.readdir(cwd, { withFileTypes: true });
   return files
     .filter((f) => f.isFile() || f.isDirectory())
+    .sort(hiddenLast)
     .map((f) => ({ name: f.name, priority: 55, context: { templateType: "filepaths" }, type: f.isDirectory() ? "folder" : "file" }));
 };
 
@@ -17,6 +25,7 @@ const foldersTemplate = async (cwd: string, signal?: AbortSignal): Promise<Fig.T
   const files = await fsAsync.readdir(cwd, { withFileTypes: true });
   return files
     .filter((f) => f.isDirectory())
+    .sort(hiddenLast)
     .map((f) => ({
       name: f.name,
       priority: 55,

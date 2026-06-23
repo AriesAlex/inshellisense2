@@ -2,6 +2,8 @@
 // Licensed under the MIT License.
 
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 import { getSuggestions } from "../../runtime/runtime.js";
 import { Shell } from "../../utils/shell.js";
@@ -85,6 +87,27 @@ describe(`getSubcommandSuggestions`, () => {
   });
 
   afterAll(async () => await getCommandSuggestionsCleanup());
+});
+
+describe(`path suggestions`, () => {
+  test("sorts hidden folders after visible folders", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "inshellisense-hidden-sort-"));
+    try {
+      fs.mkdirSync(path.join(cwd, "visible-a"));
+      fs.mkdirSync(path.join(cwd, "visible-b"));
+      fs.mkdirSync(path.join(cwd, ".hidden-a"));
+      fs.mkdirSync(path.join(cwd, ".hidden-b"));
+
+      const suggestions = await getSuggestions("cd ", cwd, Shell.Bash);
+      const names = suggestions?.suggestions.map((s) => s.name) ?? [];
+      const firstHidden = names.findIndex((name) => name.startsWith("."));
+      const lastVisible = Math.max(names.indexOf("visible-a"), names.indexOf("visible-b"));
+
+      expect(firstHidden).toBeGreaterThan(lastVisible);
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
 });
 
 const getCommandSuggestionsSetup = async () => {
