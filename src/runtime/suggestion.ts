@@ -102,10 +102,48 @@ const getPathy = (type: Fig.SuggestionType | undefined): boolean => {
 };
 
 const parentSuggestionsFirst = (a: Suggestion, b: Suggestion): number => {
-  const aParent = a.name === "..";
-  const bParent = b.name === "..";
+  const aParent = removePathSeparator(a.name) === "..";
+  const bParent = removePathSeparator(b.name) === "..";
   if (aParent !== bParent) return aParent ? -1 : 1;
   return 0;
+};
+
+const pathSuggestionRank = (suggestion: Suggestion, partialCmd: string): number => {
+  const name = suggestion.name.toLowerCase();
+  const partial = partialCmd.toLowerCase();
+  if (name === partial) return 0;
+  if (name.startsWith(partial)) return 1;
+  if (name.includes(partial)) return 2;
+  return 3;
+};
+
+const sortSuggestions = (suggestions: Suggestion[], partialCmd: string | undefined): Suggestion[] => {
+  return suggestions.sort((a, b) => {
+    const parentComparison = parentSuggestionsFirst(a, b);
+    if (parentComparison !== 0) return parentComparison;
+
+    const partial = partialCmd ?? "";
+    const aPathy = getPathy(a.type);
+    const bPathy = getPathy(b.type);
+    if (aPathy && bPathy) {
+      if (partial) {
+        const rankComparison = pathSuggestionRank(a, partial) - pathSuggestionRank(b, partial);
+        if (rankComparison !== 0) return rankComparison;
+      }
+      if (!partial.startsWith(".")) {
+        const aHidden = a.name.startsWith(".");
+        const bHidden = b.name.startsWith(".");
+        if (aHidden !== bHidden) return aHidden ? 1 : -1;
+      }
+
+      const priorityComparison = b.priority - a.priority;
+      if (priorityComparison !== 0) return priorityComparison;
+
+      return a.name.localeCompare(b.name);
+    }
+
+    return b.priority - a.priority;
+  });
 };
 
 const parentPathInsertValue = (partialDir: string, shell: Shell): string | undefined => {
@@ -338,6 +376,24 @@ const removeEmptySuggestion = (suggestions: Suggestion[]): Suggestion[] => {
   return suggestions.filter((s) => s.name.length > 0);
 };
 
+const finalizeSuggestions = (
+  suggestions: Suggestion[],
+  partialCmd: string | undefined,
+  partialToken: CommandToken | undefined,
+  lastToken: CommandToken | undefined,
+  acceptedTokens: CommandToken[],
+  allTokens: CommandToken[],
+  shell: Shell,
+): Suggestion[] => {
+  let result = sortSuggestions(suggestions, partialCmd);
+  result = adjustPathSuggestions(result, partialToken, lastToken, shell);
+  result = removeAcceptedSuggestions(result, acceptedTokens);
+  result = removeHomeDirectorySuggestion(result, allTokens);
+  result = removeHiddenSuggestions(result, partialToken);
+  result = removeEmptySuggestion(result);
+  return removeDuplicateSuggestion(result);
+};
+
 export const getSubcommandDrivenRecommendation = async (
   subcommand: Fig.Subcommand,
   persistentOptions: Fig.Option[],
@@ -376,25 +432,7 @@ export const getSubcommandDrivenRecommendation = async (
   }
 
   return {
-    suggestions: removeDuplicateSuggestion(
-      removeEmptySuggestion(
-        removeHiddenSuggestions(
-          removeHomeDirectorySuggestion(
-            removeAcceptedSuggestions(
-              adjustPathSuggestions(
-                suggestions.sort((a, b) => b.priority - a.priority),
-                partialToken,
-                lastToken,
-                shell,
-              ),
-              acceptedTokens,
-            ),
-            allTokens,
-          ),
-          partialToken,
-        ),
-      ),
-    ).sort(parentSuggestionsFirst),
+    suggestions: finalizeSuggestions(suggestions, partialCmd, partialToken, lastToken, acceptedTokens, allTokens, shell),
   };
 };
 
@@ -430,25 +468,7 @@ export const getArgDrivenRecommendation = async (
   }
 
   return {
-    suggestions: removeDuplicateSuggestion(
-      removeEmptySuggestion(
-        removeHiddenSuggestions(
-          removeHomeDirectorySuggestion(
-            removeAcceptedSuggestions(
-              adjustPathSuggestions(
-                suggestions.sort((a, b) => b.priority - a.priority),
-                partialToken,
-                lastToken,
-                shell,
-              ),
-              acceptedTokens,
-            ),
-            allTokens,
-          ),
-          partialToken,
-        ),
-      ),
-    ).sort(parentSuggestionsFirst),
+    suggestions: finalizeSuggestions(suggestions, partialCmd, partialToken, lastToken, acceptedTokens, allTokens, shell),
     argumentDescription: activeArg.description ?? activeArg.name,
   };
 };

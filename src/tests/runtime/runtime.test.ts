@@ -120,6 +120,21 @@ describe(`path suggestions`, () => {
     }
   });
 
+  test("sorts path prefix matches before substring matches", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "inshellisense-path-rank-"));
+    try {
+      fs.mkdirSync(path.join(cwd, "inshellisense"));
+      fs.mkdirSync(path.join(cwd, "server"));
+
+      const suggestions = await getSuggestions("cd se", cwd, Shell.Bash);
+      const names = suggestions?.suggestions.map((s) => s.name) ?? [];
+
+      expect(names.indexOf("server")).toBeLessThan(names.indexOf("inshellisense"));
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   test("sorts hidden folders after visible folders", async () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "inshellisense-hidden-sort-"));
     try {
