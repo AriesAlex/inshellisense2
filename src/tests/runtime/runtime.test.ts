@@ -90,6 +90,36 @@ describe(`getSubcommandSuggestions`, () => {
 });
 
 describe(`path suggestions`, () => {
+  test("sorts parent folder before hidden folders", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "inshellisense-parent-sort-"));
+    try {
+      fs.mkdirSync(path.join(cwd, "visible"));
+      fs.mkdirSync(path.join(cwd, ".hidden"));
+
+      const suggestions = await getSuggestions("cd ", cwd, Shell.Bash);
+      const names = suggestions?.suggestions.map((s) => s.name) ?? [];
+
+      expect(names.at(0)).toBe("..");
+      expect(names.indexOf(".hidden")).toBeGreaterThan(names.indexOf("visible"));
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("parent folder completion replaces the last path segment", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "inshellisense-parent-insert-"));
+    try {
+      fs.mkdirSync(path.join(cwd, "frps", "alice-skills"), { recursive: true });
+
+      const suggestions = await getSuggestions("cd frps/alice-skills/", cwd, Shell.Bash);
+      const parent = suggestions?.suggestions.find((s) => s.name === "..");
+
+      expect(parent?.insertValue).toBe("frps/");
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   test("sorts hidden folders after visible folders", async () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "inshellisense-hidden-sort-"));
     try {
@@ -100,7 +130,7 @@ describe(`path suggestions`, () => {
 
       const suggestions = await getSuggestions("cd ", cwd, Shell.Bash);
       const names = suggestions?.suggestions.map((s) => s.name) ?? [];
-      const firstHidden = names.findIndex((name) => name.startsWith("."));
+      const firstHidden = names.findIndex((name) => name.startsWith(".") && name !== "..");
       const lastVisible = Math.max(names.indexOf("visible-a"), names.indexOf("visible-b"));
 
       expect(firstHidden).toBeGreaterThan(lastVisible);

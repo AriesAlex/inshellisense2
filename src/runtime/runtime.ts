@@ -73,6 +73,8 @@ const shellBuiltins = new Set([
   "unset",
 ]);
 let executableCommands: Promise<Set<string>> | undefined;
+const shellCommands: Partial<Record<Shell, Record<string, Promise<Set<string>>>>> = {};
+const executeShellCommand = buildExecuteShellCommand(5_000);
 
 const getExecutableCommands = async (): Promise<Set<string>> => {
   executableCommands ??= (async () => {
@@ -91,6 +93,42 @@ const getExecutableCommands = async (): Promise<Set<string>> => {
     return commands;
   })();
   return executableCommands;
+};
+
+const shellQuote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
+const zshPatternPrefix = (value: string): string | undefined => (/^[A-Za-z0-9._-]+$/.test(value) ? value : undefined);
+
+const getShellCommands = async (shell: Shell, prefix: string): Promise<Set<string>> => {
+  shellCommands[shell] ??= {};
+  shellCommands[shell]![prefix] ??= (async () => {
+    const commands = new Set<string>();
+    const quotedPrefix = shellQuote(prefix);
+    const zshPrefix = zshPatternPrefix(prefix);
+    const args =
+      shell === Shell.Zsh && zshPrefix != null
+        ? [
+            "-ic",
+            `print -rl -- \${(k)commands[(I)${zshPrefix}*]} \${(k)functions[(I)${zshPrefix}*]} \${(k)aliases[(I)${zshPrefix}*]} \${(k)builtins[(I)${zshPrefix}*]}`,
+          ]
+        : shell === Shell.Bash
+        ? ["-ic", `compgen -A function -A alias -A builtin -- ${quotedPrefix}`]
+        : undefined;
+    if (args == null) return commands;
+
+    const { stdout, status, stderr } = await executeShellCommand({ command: shell, args, cwd: process.cwd(), env: { ISTERM: "1" } });
+    if (status !== 0) {
+      log.debug({ msg: "failed to load shell commands", shell, stderr, status });
+      return commands;
+    }
+
+    stdout
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .forEach((command) => commands.add(command));
+    return commands;
+  })();
+  return shellCommands[shell]![prefix];
 };
 
 const loadSpec = async (cmd: CommandToken[], signal?: AbortSignal): Promise<Fig.Spec | undefined> => {
@@ -150,7 +188,7 @@ export const getSuggestions = async (cmd: string, cwd: string, shell: Shell, sig
     return;
   }
   if (rootToken != null && !rootToken.complete) {
-    return runCommand(rootToken);
+    return runCommand(rootToken, shell);
   }
 
   activeCmd = aliasExpand(activeCmd);
@@ -451,12 +489,16 @@ const runSubcommand = async (
   return runSubcommand(tokens.slice(1), allTokens, subcommand, cwd, shell, persistentOptions, acceptedTokens.concat(activeToken), undefined, undefined, signal);
 };
 
-const runCommand = async (token: CommandToken): Promise<SuggestionBlob | undefined> => {
+const runCommand = async (token: CommandToken, shell: Shell): Promise<SuggestionBlob | undefined> => {
   const commands = await getExecutableCommands();
-  const specs = Object.keys(specSet)
+  const specMatches = Object.keys(specSet)
     .filter((spec) => spec.startsWith(token.token))
-    .filter((spec) => commands.has(spec))
     .sort();
+  let specs = specMatches.filter((spec) => commands.has(spec));
+  if (specs.length === 0 && specMatches.length > 0) {
+    const shellCommandNames = await getShellCommands(shell, token.token);
+    specs = specMatches.filter((spec) => shellCommandNames.has(spec));
+  }
   const aliases = getAliasNames()
     .filter((spec) => spec.startsWith(token.token))
     .sort();

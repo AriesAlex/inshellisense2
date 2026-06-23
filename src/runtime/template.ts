@@ -4,34 +4,45 @@
 import fsAsync from "node:fs/promises";
 import log from "../utils/log.js";
 
-const hiddenLast = (a: { name: string }, b: { name: string }): number => {
-  const aHidden = a.name.startsWith(".");
-  const bHidden = b.name.startsWith(".");
+const hiddenLast = (a: { name?: string }, b: { name?: string }): number => {
+  const aName = a.name ?? "";
+  const bName = b.name ?? "";
+  if (aName === ".." || bName === "..") return aName === ".." ? -1 : 1;
+  const aHidden = aName.startsWith(".");
+  const bHidden = bName.startsWith(".");
   if (aHidden !== bHidden) return aHidden ? 1 : -1;
-  return a.name.localeCompare(b.name);
+  return aName.localeCompare(bName);
 };
 
 const filepathsTemplate = async (cwd: string, signal?: AbortSignal): Promise<Fig.TemplateSuggestion[]> => {
   signal?.throwIfAborted();
   const files = await fsAsync.readdir(cwd, { withFileTypes: true });
-  return files
-    .filter((f) => f.isFile() || f.isDirectory())
-    .sort(hiddenLast)
-    .map((f) => ({ name: f.name, priority: 55, context: { templateType: "filepaths" }, type: f.isDirectory() ? "folder" : "file" }));
+  return [{ name: "..", priority: 56, context: { templateType: "filepaths" }, type: "folder" } as Fig.TemplateSuggestion]
+    .concat(
+      files
+        .filter((f) => f.isFile() || f.isDirectory())
+        .sort(hiddenLast)
+        .map((f) => ({ name: f.name, priority: 55, context: { templateType: "filepaths" }, type: f.isDirectory() ? "folder" : "file" })),
+    )
+    .sort(hiddenLast);
 };
 
 const foldersTemplate = async (cwd: string, signal?: AbortSignal): Promise<Fig.TemplateSuggestion[]> => {
   signal?.throwIfAborted();
   const files = await fsAsync.readdir(cwd, { withFileTypes: true });
-  return files
-    .filter((f) => f.isDirectory())
-    .sort(hiddenLast)
-    .map((f) => ({
-      name: f.name,
-      priority: 55,
-      context: { templateType: "folders" },
-      type: "folder",
-    }));
+  return [{ name: "..", priority: 56, context: { templateType: "folders" }, type: "folder" } as Fig.TemplateSuggestion]
+    .concat(
+      files
+        .filter((f) => f.isDirectory())
+        .sort(hiddenLast)
+        .map((f) => ({
+          name: f.name,
+          priority: 55,
+          context: { templateType: "folders" },
+          type: "folder",
+        })),
+    )
+    .sort(hiddenLast);
 };
 
 // TODO: implement history template

@@ -101,6 +101,26 @@ const getPathy = (type: Fig.SuggestionType | undefined): boolean => {
   return type === "file" || type === "folder";
 };
 
+const parentSuggestionsFirst = (a: Suggestion, b: Suggestion): number => {
+  const aParent = a.name === "..";
+  const bParent = b.name === "..";
+  if (aParent !== bParent) return aParent ? -1 : 1;
+  return 0;
+};
+
+const parentPathInsertValue = (partialDir: string, shell: Shell): string | undefined => {
+  if (!partialDir || partialDir === "." || partialDir === "./") return;
+
+  const normalizedDir = removePathSeparator(partialDir);
+  if (!normalizedDir || normalizedDir === "." || normalizedDir === path.parse(normalizedDir).root) {
+    return normalizedDir ? addPathSeparator(normalizedDir, shell) : "";
+  }
+
+  const parent = path.dirname(normalizedDir);
+  if (parent === ".") return "";
+  return addPathSeparator(parent, shell);
+};
+
 const toSuggestion = (suggestion: Fig.Suggestion, name?: string, type?: Fig.SuggestionType): Suggestion | undefined => {
   if (suggestion.name == null) return;
   return {
@@ -279,7 +299,12 @@ function adjustPathSuggestions(
     const insertValue = s.type == "folder" || specialPathy ? addPathSeparator(rawInsertValue, shell) : rawInsertValue;
     const partialDir = getPathDirname(partialToken?.token ?? "", shell);
     const isPartialTokenPath = partialToken?.isPath && endsWithPathSeparator(partialDir, shell);
-    const fullPath = isPartialTokenPath ? `${partialDir}${insertValue}` : insertValue;
+    const fullPath =
+      isPartialTokenPath && rawInsertValue === ".."
+        ? parentPathInsertValue(partialDir, shell) ?? insertValue
+        : isPartialTokenPath
+        ? `${partialDir}${insertValue}`
+        : insertValue;
     return pathy ? { ...s, insertValue: escapePath(fullPath, shell), name: removePathSeparator(s.name) } : s;
   });
 }
@@ -369,7 +394,7 @@ export const getSubcommandDrivenRecommendation = async (
           partialToken,
         ),
       ),
-    ),
+    ).sort(parentSuggestionsFirst),
   };
 };
 
@@ -423,7 +448,7 @@ export const getArgDrivenRecommendation = async (
           partialToken,
         ),
       ),
-    ),
+    ).sort(parentSuggestionsFirst),
     argumentDescription: activeArg.description ?? activeArg.name,
   };
 };

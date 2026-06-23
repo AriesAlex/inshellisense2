@@ -766,15 +766,15 @@ exports[`parseCommand pathWithFileSuggestion 1`] = `
   "suggestions": [
     {
       "allNames": [
-        "bash-preexec.sh",
+        "..",
       ],
       "description": undefined,
       "hidden": undefined,
-      "icon": "📄",
-      "insertValue": "shell/bash-preexec.sh",
-      "name": "bash-preexec.sh",
-      "priority": 55,
-      "type": "file",
+      "icon": "📁",
+      "insertValue": "",
+      "name": "..",
+      "priority": 56,
+      "type": "folder",
     },
   ],
 }
