@@ -47,13 +47,13 @@ export class SuggestionManager {
   }
 
   private async _loadSuggestions(): Promise<void> {
-    this.#abortController?.abort();
     const commandState = this.#term.getCommandState();
     const commandText = commandState.commandText;
     if (!commandText) {
       this.#command = "";
     }
     if (!commandText || this.#hideSuggestions || commandState.hasOutput) {
+      this.#abortController?.abort();
       this.#suggestBlob = undefined;
       this.#activeSuggestionIdx = 0;
       return;
@@ -61,6 +61,7 @@ export class SuggestionManager {
     if (commandText == this.#command) {
       return;
     }
+    this.#abortController?.abort();
     this.#abortController = new AbortController();
     try {
       const suggestionBlob = await getSuggestions(commandText, this.#term.cwd, this.#shell, this.#abortController.signal);

@@ -10,7 +10,7 @@ import { nativeResourcesPath, shellResourcesPath, specResourcesPath, versionReso
 import { getVersion } from "./version.js";
 
 const ASSET_PATH_SEP = "____";
-const packageRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const packageRoot = sea.isSea() ? "" : path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 type AssetType = "native" | "shell" | "spec";
 
