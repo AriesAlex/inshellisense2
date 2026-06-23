@@ -6,6 +6,7 @@ import figSpecList, {
   // eslint-disable-next-line @typescript-eslint/ban-ts-comment
   // @ts-ignore
 } from "@withfig/autocomplete/build/index.js";
+import fsAsync from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseCommand, CommandToken } from "./parser.js";
@@ -46,6 +47,51 @@ function loadSpecsSet(speclist: string[], versionedSpeclist: string[], specsPath
 loadSpecsSet(speclist as string[], versionedSpeclist, specResourcesPath);
 
 const loadedSpecs: { [key: string]: Fig.Spec } = {};
+const shellBuiltins = new Set([
+  "alias",
+  "bg",
+  "cd",
+  "command",
+  "dirs",
+  "echo",
+  "eval",
+  "exec",
+  "exit",
+  "export",
+  "fg",
+  "history",
+  "jobs",
+  "popd",
+  "pushd",
+  "pwd",
+  "read",
+  "set",
+  "source",
+  "test",
+  "type",
+  "unalias",
+  "unset",
+]);
+let executableCommands: Promise<Set<string>> | undefined;
+
+const getExecutableCommands = async (): Promise<Set<string>> => {
+  executableCommands ??= (async () => {
+    const commands = new Set(shellBuiltins);
+    const pathDirs = (process.env.PATH ?? "").split(path.delimiter).filter(Boolean);
+    await Promise.allSettled(
+      pathDirs.map(async (dir) => {
+        const entries = await fsAsync.readdir(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.isFile() || entry.isSymbolicLink()) {
+            commands.add(entry.name);
+          }
+        }
+      }),
+    );
+    return commands;
+  })();
+  return executableCommands;
+};
 
 const loadSpec = async (cmd: CommandToken[], signal?: AbortSignal): Promise<Fig.Spec | undefined> => {
   const rootToken = cmd.at(0);
@@ -406,8 +452,10 @@ const runSubcommand = async (
 };
 
 const runCommand = async (token: CommandToken): Promise<SuggestionBlob | undefined> => {
+  const commands = await getExecutableCommands();
   const specs = Object.keys(specSet)
     .filter((spec) => spec.startsWith(token.token))
+    .filter((spec) => commands.has(spec))
     .sort();
   const aliases = getAliasNames()
     .filter((spec) => spec.startsWith(token.token))
