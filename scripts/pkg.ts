@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 import * as esbuild from "esbuild";
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import crypto from "node:crypto";
 import { createWriteStream } from "node:fs";
 import fs from "node:fs";
@@ -93,11 +93,8 @@ const downloadNodeBinary = async (): Promise<string> => {
 
   await verifySha256(archivePath);
 
-  if (process.platform === "win32") {
-    execSync(`unzip -o "${archivePath}" -d "${PKG_DIR}"`, { stdio: "inherit" });
-  } else {
-    execSync(`tar -xzf "${archivePath}" -C "${PKG_DIR}"`, { stdio: "inherit" });
-  }
+  const archiveArgs = process.platform === "win32" ? ["-xf", archivePath, "-C", PKG_DIR] : ["-xzf", archivePath, "-C", PKG_DIR];
+  execFileSync("tar", archiveArgs, { stdio: "inherit" });
 
   // Clean up archive
   fs.unlinkSync(archivePath);
