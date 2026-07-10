@@ -249,6 +249,10 @@ export const getBackspaceSequence = (press: KeyPressEvent, shell: Shell) =>
 
 export const getPathSeparator = (shell: Shell) => (shell == Shell.Bash || shell == Shell.Xonsh || shell == Shell.Nushell ? "/" : path.sep);
 
+const getPathSeparators = (shell: Shell) => (getPathSeparator(shell) === "\\" ? ["\\", "/"] : ["/"]);
+
+export const containsPathSeparator = (dir: string, shell: Shell) => getPathSeparators(shell).some((separator) => dir.includes(separator));
+
 export const removePathSeparator = (dir: string) => {
   return dir.endsWith("/") || dir.endsWith("\\") ? dir.slice(0, -1) : dir;
 };
@@ -259,14 +263,10 @@ export const addPathSeparator = (dir: string, shell: Shell) => {
 };
 
 export const getPathDirname = (dir: string, shell: Shell) => {
-  const pathSep = getPathSeparator(shell);
-  return dir.endsWith(pathSep) || path.dirname(dir) == "." ? dir : addPathSeparator(path.dirname(dir), shell);
+  return endsWithPathSeparator(dir, shell) || path.dirname(dir) == "." ? dir : addPathSeparator(path.dirname(dir), shell);
 };
 
-export const endsWithPathSeparator = (dir: string, shell: Shell) => {
-  const pathSep = getPathSeparator(shell);
-  return dir.endsWith(pathSep);
-};
+export const endsWithPathSeparator = (dir: string, shell: Shell) => getPathSeparators(shell).some((separator) => dir.endsWith(separator));
 
 // nu fully re-writes the prompt every keystroke resulting in duplicate start/end sequences on the same line & re-writes the prompt after accepting a command
 // xonsh re-writes the prompt after accepting a command

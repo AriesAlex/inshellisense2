@@ -7,7 +7,7 @@ import fsAsync from "node:fs/promises";
 import { homedir } from "node:os";
 
 import { CommandToken } from "./parser.js";
-import { getPathSeparator, gitBashPath, Shell } from "../utils/shell.js";
+import { containsPathSeparator, endsWithPathSeparator, gitBashPath, Shell } from "../utils/shell.js";
 import log from "../utils/log.js";
 
 export type ExecuteShellCommandTTYResult = {
@@ -124,13 +124,14 @@ export const resolveCwd = async (
 ): Promise<{ cwd: string; pathy: boolean; complete: boolean }> => {
   if (cmdToken == null || cmdToken.complete) return { cwd, pathy: false, complete: false };
   const { token: rawToken, isQuoted } = cmdToken;
-  const sep = getPathSeparator(shell);
   const escapedToken = !isQuoted ? rawToken.replaceAll(" ", "\\ ") : rawToken;
   if (escapedToken === "~") return { cwd: homedir(), pathy: true, complete: false };
-  if (escapedToken === `~${sep}`) return { cwd: homedir(), pathy: true, complete: true };
-  if (!escapedToken.includes(sep)) return { cwd, pathy: false, complete: false };
-  const tokenComplete = escapedToken.endsWith(sep);
-  const trimmedToken = escapedToken.endsWith(sep) ? escapedToken : path.dirname(escapedToken);
+  if (escapedToken.startsWith("~") && escapedToken.length === 2 && endsWithPathSeparator(escapedToken, shell)) {
+    return { cwd: homedir(), pathy: true, complete: true };
+  }
+  if (!containsPathSeparator(escapedToken, shell)) return { cwd, pathy: false, complete: false };
+  const tokenComplete = endsWithPathSeparator(escapedToken, shell);
+  const trimmedToken = tokenComplete ? escapedToken : path.dirname(escapedToken);
   const token = trimmedToken;
   const resolvedCwd = path.isAbsolute(token) ? token : isHomedir(token) ? token.replace("~", homedir()) : path.join(cwd, token);
   try {

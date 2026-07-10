@@ -120,6 +120,23 @@ describe(`path suggestions`, () => {
     }
   });
 
+  test.each(["cd ../", "cd ..\\"])("lists parent folder contents for PowerShell input %s", async (command) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "inshellisense-powershell-parent-"));
+    const cwd = path.join(root, "current");
+    try {
+      fs.mkdirSync(cwd);
+      fs.mkdirSync(path.join(root, "sibling-a"));
+      fs.mkdirSync(path.join(root, "sibling-b"));
+
+      const suggestions = await getSuggestions(command, cwd, Shell.Powershell);
+      const names = suggestions?.suggestions.map((s) => s.name) ?? [];
+
+      expect(names).toEqual(expect.arrayContaining(["current", "sibling-a", "sibling-b"]));
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("sorts path prefix matches before substring matches", async () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "inshellisense-path-rank-"));
     try {
