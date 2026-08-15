@@ -177,6 +177,7 @@ export class ISTerm implements IPty {
   private _handleAlternateBuffer(data: string): boolean {
     const text = this.#alternateBufferTail + data;
     let matched = false;
+    // eslint-disable-next-line no-control-regex
     for (const match of text.matchAll(/\x1b\[\?(?:47|1047|1049)([hl])/g)) {
       matched = true;
       this.#alternateBuffer = match[1] === "h";
@@ -328,11 +329,18 @@ export class ISTerm implements IPty {
 
       let prevCell: ICellData | undefined;
       let ansiLine = ansiPrePatch;
+      let blankCellCount = 0;
+      const flushBlankCells = () => {
+        if (blankCellCount == 0) return;
+        ansiLine.push(ansi.cursorForward(blankCellCount));
+        blankCellCount = 0;
+      };
 
       const patchStartX = patch?.startX ?? 0;
       const patchEndX = (patch?.startX ?? 0) + (patch?.length ?? 0);
       for (let x = 0; x < line.length; x++) {
         if (hasPatch && x >= patchStartX && x < patchEndX) {
+          flushBlankCells();
           prevCell = undefined;
           ansiLine = ansiPostPatch;
           continue;
@@ -344,6 +352,7 @@ export class ISTerm implements IPty {
         const sameColor = this._sameColor(prevCell, cell);
         const sameAccents = this._sameAccent(prevCell, cell);
         if (!sameColor || !sameAccents) {
+          flushBlankCells();
           ansiLine.push(ansi.resetColor);
         }
         if (!sameColor) {
@@ -353,10 +362,15 @@ export class ISTerm implements IPty {
           ansiLine.push(this._getAnsiAccents(cell));
         }
         const isWide = prevCell?.getWidth() == 2 && cell?.getWidth() == 0;
-        const cursorForward = isWide ? "" : ansi.cursorForward();
-        ansiLine.push(chars == "" ? cursorForward : chars);
+        if (chars == "") {
+          if (!isWide) blankCellCount++;
+        } else {
+          flushBlankCells();
+          ansiLine.push(chars);
+        }
         prevCell = cell;
       }
+      flushBlankCells();
       return [ansiPrePatch.join(""), patch?.data ?? "", ansiPostPatch.join("")].join("");
     };
 

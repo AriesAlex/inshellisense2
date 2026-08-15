@@ -3,11 +3,12 @@
 
 import os from "node:os";
 import isterm from "../../isterm";
-import { cursorBackward } from "../../utils/ansi";
+import { cursorBackward, cursorForward } from "../../utils/ansi";
 import { Shell } from "../../utils/shell";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockProgram: any = { error: () => {} };
+const unixPtyTest = os.platform() == "darwin" || os.platform() == "linux" ? test : test.skip;
 
 const windowsTest = os.platform() == "win32" ? test.skip : test.skip;
 const unixTest = os.platform() == "darwin" || os.platform() == "linux" ? test.skip : test.skip;
@@ -24,6 +25,23 @@ const runTerm = async (shell: Shell, input: string[], env?: { [key: string]: str
   delete commandState.promptText;
   return { ...commandState, hasPromptText };
 };
+
+unixPtyTest(
+  "coalesces blank-cell cursor movement in screen patches",
+  async () => {
+    const ptyProcess = await isterm.spawn(mockProgram, { shell: Shell.Zsh, rows: 24, cols: 240, underTest: true, login: false });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      const patch = ptyProcess.getPatch(15, [], "below");
+      expect(patch).toContain(cursorForward(240));
+      expect(patch).not.toContain(cursorForward().repeat(2));
+      expect(Buffer.byteLength(patch)).toBeLessThan(1_000);
+    } finally {
+      ptyProcess.kill();
+    }
+  },
+  10_000,
+);
 
 windowsTest(
   "test cmd on initial simple command input",
