@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 import readline from "node:readline";
+import { PassThrough } from "node:stream";
 import ansi from "ansi-escapes";
 import chalk from "chalk";
 import { Command } from "commander";
@@ -9,8 +10,7 @@ import { Command } from "commander";
 import log from "../utils/log.js";
 import { getBackspaceSequence, Shell } from "../utils/shell.js";
 import { enableWin32InputMode, resetToInitialState } from "../utils/ansi.js";
-import { getMaxLines, type KeyPressEvent, type SuggestionManager } from "./suggestionManager.js";
-import type { ISTerm } from "../isterm/pty.js";
+import { getMaxLines, type KeyPressEvent } from "./suggestionManager.js";
 
 export const renderConfirmation = (live: boolean): string => {
   const statusMessage = live ? chalk.green("live") : chalk.red("not found");
@@ -26,126 +26,101 @@ const writeOutput = (data: string) => {
   process.stdout.write(data);
 };
 
-const _render = (term: ISTerm, suggestionManager: SuggestionManager, data: string, handlingBackspace: boolean, handlingSuggestion: boolean): boolean => {
-  const direction = _direction(term);
-  const { hidden: cursorHidden, shift: cursorShift } = term.getCursorState();
-  const linesOfInterest = getMaxLines();
-
-  if (term.isAlternateBuffer()) {
-    writeOutput(data);
-    return false;
-  }
-
-  const suggestion = suggestionManager.render(direction);
-  const hasSuggestion = suggestion.length != 0;
-
-  // there is no rendered suggestion and this will not render a suggestion
-  if (!handlingSuggestion && !hasSuggestion) {
-    writeOutput(data);
-    return false;
-  }
-
-  const commandState = term.getCommandState();
-  const cursorTerminated = handlingBackspace ? true : commandState.cursorTerminated ?? false;
-  const showSuggestions = hasSuggestion && cursorTerminated && !commandState.hasOutput && !cursorShift && !!commandState.commandText;
-  const patch = term.getPatch(linesOfInterest, showSuggestions ? suggestion : [], direction);
-
-  const ansiCursorShow = cursorHidden ? "" : ansi.cursorShow;
-  if (direction == "above") {
-    writeOutput(
-      data + ansi.cursorHide + ansi.cursorSavePosition + ansi.cursorPrevLine.repeat(linesOfInterest) + patch + ansi.cursorRestorePosition + ansiCursorShow,
-    );
-  } else {
-    writeOutput(ansi.cursorHide + ansi.cursorSavePosition + ansi.cursorNextLine + patch + ansi.cursorRestorePosition + ansiCursorShow + data);
-  }
-  return showSuggestions;
-};
-
-const _clear = (term: ISTerm): void => {
-  const clearDirection = _direction(term) == "above" ? "below" : "above"; // invert direction to clear what was previously rendered
-  const { hidden: cursorHidden } = term.getCursorState();
-  const patch = term.getPatch(getMaxLines(), [], clearDirection);
-
-  const ansiCursorShow = cursorHidden ? "" : ansi.cursorShow;
-  if (clearDirection == "above") {
-    writeOutput(ansi.cursorHide + ansi.cursorSavePosition + ansi.cursorPrevLine.repeat(getMaxLines()) + patch + ansi.cursorRestorePosition + ansiCursorShow);
-  } else {
-    writeOutput(ansi.cursorHide + ansi.cursorSavePosition + ansi.cursorNextLine + patch + ansi.cursorRestorePosition + ansiCursorShow);
-  }
-};
-
-const _direction = (term: ISTerm): "above" | "below" => {
-  return term.getCursorState().remainingLines > getMaxLines() ? "below" : "above";
-};
+// DECSC/DECRC also work in JediTerm, which does not implement CSI s/u.
+const saveCursor = "\x1b7";
+const restoreCursor = "\x1b8";
 
 export const render = async (program: Command, shell: Shell, underTest: boolean, login: boolean) => {
   const [isterm, { SuggestionManager }] = await Promise.all([import("../isterm/index.js"), import("./suggestionManager.js")]);
   const term = await isterm.default.spawn(program, { shell, rows: process.stdout.rows, cols: process.stdout.columns, underTest, login });
   const suggestionManager = new SuggestionManager(term, shell);
-  let hasSuggestion = false;
-  let direction = _direction(term);
-  let handlingBackspace = false; // backspace normally consistent of two data points (move back & delete), so on the first data point, we won't enforce the cursor terminated rule. this will help reduce flicker
+  let overlay: { top: number; restore: string } | undefined;
+  let revision = 0;
   const stdinStartedInRawMode = process.stdin.isRaw;
   if (process.stdin.isTTY) process.stdin.setRawMode(true);
-  readline.emitKeypressEvents(process.stdin);
+  const shellInput = new PassThrough();
+  readline.emitKeypressEvents(shellInput);
 
-  const writeOutput = (data: string) => {
-    log.debug({ msg: "writing data", data });
-    process.stdout.write(data);
+  const clearOverlay = () => {
+    if (!overlay) return;
+    const { hidden } = term.getCursorState();
+    writeOutput(ansi.cursorHide + saveCursor + ansi.cursorTo(0, overlay.top) + overlay.restore + restoreCursor + (hidden ? "" : ansi.cursorShow));
+    overlay = undefined;
+  };
+
+  const drawOverlay = () => {
+    const state = term.getCommandState();
+    if (term.isAlternateBuffer() || !state.commandText || !state.cursorTerminated || state.hasOutput) return;
+    const { cursorY, hidden } = term.getCursorState();
+    const below = term.rows - cursorY - 1;
+    const above = cursorY;
+    const direction = below >= getMaxLines() || below >= above ? "below" : "above";
+    const height = Math.min(getMaxLines(), direction === "below" ? below : above);
+    const patches = suggestionManager.render(direction, height);
+    if (patches.length === 0) return;
+    const top = direction === "below" ? cursorY + 1 : cursorY - patches.length;
+    overlay = { top, restore: term.getPatch(top, patches.length) };
+    writeOutput(
+      ansi.cursorHide + saveCursor + ansi.cursorTo(0, top) + term.getPatch(top, patches.length, patches) + restoreCursor + (hidden ? "" : ansi.cursorShow),
+    );
+  };
+
+  const refreshSuggestions = async () => {
+    const currentRevision = revision;
+    await suggestionManager.exec();
+    if (currentRevision !== revision) return;
+    clearOverlay();
+    drawOverlay();
   };
 
   writeOutput(ansi.clearTerminal);
-
-  term.onData(async (data) => {
-    data = data.replace(enableWin32InputMode, ""); // remove win32-input-mode enable sequence if it comes through data
-    if (term.isAlternateBufferOutput()) {
-      writeOutput(data);
-      hasSuggestion = false;
-      handlingBackspace = false;
-      direction = _direction(term);
-      return;
-    }
-
-    const handlingDirectionChange = direction != _direction(term);
-    // clear the previous suggestion if the direction has changed to avoid leftover suggestions
-    if (handlingDirectionChange) {
-      _clear(term);
-    }
-
-    hasSuggestion = _render(term, suggestionManager, data, handlingBackspace, hasSuggestion);
-    await suggestionManager.exec();
-    hasSuggestion = _render(term, suggestionManager, "", handlingBackspace, hasSuggestion);
-
-    handlingBackspace = false;
-    direction = _direction(term);
+  term.onBeforeData(() => {
+    revision++;
+    clearOverlay();
+  });
+  term.onData((data) => {
+    writeOutput(data.replaceAll(enableWin32InputMode, ""));
+    if (!term.isAlternateBufferOutput()) void refreshSuggestions();
   });
 
-  process.stdin.on("keypress", (...keyPress: KeyPressEvent) => {
+  shellInput.on("keypress", (...keyPress: KeyPressEvent) => {
     const press = keyPress[1];
-    if (term.isAlternateBuffer()) {
-      term.write(press.sequence);
+    const hadOverlay = overlay !== undefined;
+    revision++;
+    clearOverlay();
+    if ((hadOverlay || press.name === "return" || (press.name === "c" && press.ctrl)) && suggestionManager.update(press)) {
+      void refreshSuggestions();
       return;
     }
+    term.write(press.name === "backspace" ? getBackspaceSequence(keyPress, shell) : press.sequence);
+  });
 
-    const inputHandled = suggestionManager.update(press);
-    if (hasSuggestion && inputHandled) {
-      term.noop();
-    } else if (!inputHandled) {
-      if (press.name == "backspace") {
-        handlingBackspace = true;
-        term.write(getBackspaceSequence(keyPress, shell));
-      } else {
-        term.write(press.sequence);
-      }
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", (data: string) => {
+    // Terminal responses and application input must retain their original byte boundaries.
+    if (term.isAlternateBuffer() || term.getCommandState().promptText == null) {
+      term.write(data, true);
+    } else {
+      shellInput.write(data);
     }
   });
 
   term.onExit(({ exitCode }) => {
-    if (!stdinStartedInRawMode) process.stdin.setRawMode(false);
+    clearOverlay();
+    if (process.stdin.isTTY && !stdinStartedInRawMode) process.stdin.setRawMode(false);
     process.stdout.write(resetToInitialState);
     process.exit(exitCode);
   });
   process.stdout.on("resize", () => {
+    revision++;
+    const hadOverlay = overlay !== undefined;
+    overlay = undefined;
     term.resize(process.stdout.columns, process.stdout.rows);
+    if (hadOverlay && !term.isAlternateBuffer()) {
+      // The client has already reflowed the overlay, possibly into scrollback.
+      const { hidden } = term.getCursorState();
+      writeOutput(ansi.cursorHide + ansi.clearTerminal + "\x1b[3J" + term.getSnapshot() + (hidden ? "" : ansi.cursorShow));
+    }
+    void refreshSuggestions();
   });
 };

@@ -17,8 +17,7 @@ const descriptionWidth = 30;
 const descriptionHeight = 5;
 const borderWidth = 2;
 const activeSuggestionBackgroundColor = "#7D56F4";
-export const getMaxLines = () => borderWidth + Math.max(getMaxSuggestions(), descriptionHeight) + 1; // accounts when there is a unhandled newline at the end of the command
-export const MIN_WIDTH = borderWidth + descriptionWidth;
+export const getMaxLines = () => borderWidth + Math.max(getMaxSuggestions(), descriptionHeight);
 
 export type KeyPressEvent = [string | null | undefined, KeyPress];
 
@@ -62,9 +61,11 @@ export class SuggestionManager {
       return;
     }
     this.#abortController?.abort();
-    this.#abortController = new AbortController();
+    const controller = new AbortController();
+    this.#abortController = controller;
     try {
-      const suggestionBlob = await getSuggestions(commandText, this.#term.cwd, this.#shell, this.#abortController.signal);
+      const suggestionBlob = await getSuggestions(commandText, this.#term.cwd, this.#shell, controller.signal);
+      if (controller.signal.aborted || this.#term.getCommandState().commandText !== commandText) return;
       this.#command = commandText;
       this.#suggestBlob = suggestionBlob;
       this.#activeSuggestionIdx = 0;
@@ -77,59 +78,61 @@ export class SuggestionManager {
     }
   }
 
-  private _renderArgumentDescription(description: string | undefined) {
+  private _renderArgumentDescription(description: string | undefined, width: number) {
     if (!description) return [];
-    return renderBox([truncateText(description, descriptionWidth - borderWidth)], descriptionWidth);
+    return renderBox([truncateText(description, width - borderWidth)], width);
   }
 
-  private _renderDescription(description: string | undefined) {
+  private _renderDescription(description: string | undefined, height: number) {
     if (!description) return "";
-    return renderBox(truncateMultilineText(description, descriptionWidth - borderWidth, descriptionHeight), descriptionWidth);
+    return renderBox(truncateMultilineText(description, descriptionWidth - borderWidth, height), descriptionWidth);
   }
 
-  private _renderSuggestions(suggestions: Suggestion[], activeSuggestionIdx: number) {
+  private _renderSuggestions(suggestions: Suggestion[], activeSuggestionIdx: number, width: number) {
     return renderBox(
       suggestions.map((suggestion, idx) => {
         const suggestionText = `${suggestion.icon} ${suggestion.name}`;
-        const truncatedSuggestion = truncateText(suggestionText, suggestionWidth - 2);
+        const truncatedSuggestion = truncateText(suggestionText, width - borderWidth);
         return idx == activeSuggestionIdx ? chalk.bgHex(activeSuggestionBackgroundColor)(truncatedSuggestion) : truncatedSuggestion;
       }),
-      suggestionWidth,
+      width,
     );
   }
 
-  private _calculatePadding(description: string): { padding: number; swapDescription: boolean } {
+  private _calculatePadding(description: string, width: number): { padding: number; swapDescription: boolean } {
     const wrappedPadding = this.#term.getCursorState().cursorX % this.#term.cols;
-    const maxPadding = description.length !== 0 ? this.#term.cols - suggestionWidth - descriptionWidth : this.#term.cols - suggestionWidth;
+    const maxPadding = description.length !== 0 ? this.#term.cols - width - descriptionWidth : this.#term.cols - width;
     const swapDescription = wrappedPadding > maxPadding && description.length !== 0;
     const swappedPadding = swapDescription ? Math.max(wrappedPadding - descriptionWidth, 0) : wrappedPadding;
     const padding = Math.min(Math.min(wrappedPadding, swappedPadding), maxPadding);
     return { padding, swapDescription };
   }
 
-  private _calculateRowPadding(padding: number, swapDescription: boolean, suggestionContent?: string, descriptionContent?: string): number {
+  private _calculateRowPadding(padding: number, swapDescription: boolean, width: number, suggestionContent?: string, descriptionContent?: string): number {
     if (swapDescription) {
       return descriptionContent == null ? padding + descriptionWidth : padding;
     }
-    return suggestionContent == null ? padding + suggestionWidth : padding;
+    return suggestionContent == null ? padding + width : padding;
   }
 
   async exec(): Promise<void> {
     return await this._loadSuggestions();
   }
 
-  render(direction: "above" | "below"): ISTermPatch[] {
-    if (!this.#suggestBlob) {
+  render(direction: "above" | "below", height = getMaxLines()): ISTermPatch[] {
+    if (!this.#suggestBlob || height <= borderWidth || this.#term.cols <= borderWidth) {
       return [];
     }
     const { suggestions, argumentDescription } = this.#suggestBlob;
 
-    const maxSuggestions = getMaxSuggestions();
+    const width = Math.min(suggestionWidth, this.#term.cols);
+    const maxSuggestions = Math.min(getMaxSuggestions(), height - borderWidth);
     const page = Math.min(Math.floor(this.#activeSuggestionIdx / maxSuggestions) + 1, Math.floor(suggestions.length / maxSuggestions) + 1);
     const pagedSuggestions = suggestions.filter((_, idx) => idx < page * maxSuggestions && idx >= (page - 1) * maxSuggestions);
     const activePagedSuggestionIndex = this.#activeSuggestionIdx % maxSuggestions;
-    const activeDescription = pagedSuggestions.at(activePagedSuggestionIndex)?.description || argumentDescription || "";
-    const { swapDescription, padding } = this._calculatePadding(activeDescription);
+    const activeDescription =
+      this.#term.cols >= width + descriptionWidth ? pagedSuggestions.at(activePagedSuggestionIndex)?.description || argumentDescription || "" : "";
+    const { swapDescription, padding } = this._calculatePadding(activeDescription, width);
 
     if (suggestions.length <= this.#activeSuggestionIdx) {
       this.#activeSuggestionIdx = Math.max(suggestions.length - 1, 0);
@@ -137,12 +140,17 @@ export class SuggestionManager {
 
     if (pagedSuggestions.length == 0) {
       if (argumentDescription != null) {
-        return this._renderArgumentDescription(argumentDescription).map((row) => ({ startX: padding, length: descriptionWidth, data: row }));
+        const argumentWidth = Math.min(descriptionWidth, this.#term.cols);
+        return this._renderArgumentDescription(argumentDescription, argumentWidth).map((row) => ({
+          startX: Math.min(padding, this.#term.cols - argumentWidth),
+          length: argumentWidth,
+          data: row,
+        }));
       }
       return [];
     }
-    const descriptionUI = this._renderDescription(activeDescription);
-    const suggestionUI = this._renderSuggestions(pagedSuggestions, activePagedSuggestionIndex);
+    const descriptionUI = this._renderDescription(activeDescription, Math.min(descriptionHeight, height - borderWidth));
+    const suggestionUI = this._renderSuggestions(pagedSuggestions, activePagedSuggestionIndex, width);
     const ui = [];
     const maxRows = Math.max(descriptionUI.length, suggestionUI.length);
     for (let i = 0; i < maxRows; i++) {
@@ -152,11 +160,11 @@ export class SuggestionManager {
           : [suggestionUI[i], descriptionUI[i]];
 
       const data = swapDescription ? (descriptionUIRow ?? "") + (suggestionUIRow ?? "") : (suggestionUIRow ?? "") + (descriptionUIRow ?? "");
-      const rowPadding = this._calculateRowPadding(padding, swapDescription, suggestionUIRow, descriptionUIRow);
+      const rowPadding = this._calculateRowPadding(padding, swapDescription, width, suggestionUIRow, descriptionUIRow);
 
       ui.push({
         startX: rowPadding,
-        length: (suggestionUIRow == null ? 0 : suggestionWidth) + (descriptionUIRow == null ? 0 : descriptionWidth),
+        length: (suggestionUIRow == null ? 0 : width) + (descriptionUIRow == null ? 0 : descriptionWidth),
         data: data,
       });
     }

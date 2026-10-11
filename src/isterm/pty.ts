@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
+import { SerializeAddon } from "@xterm/addon-serialize";
 
 import pty from "node-pty";
 import type { IPty, IEvent } from "node-pty";
@@ -22,13 +23,18 @@ interface ICellData extends IBufferCell {
 import { CommandManager, CommandState } from "./commandManager.js";
 import log from "../utils/log.js";
 import { gitBashPath } from "../utils/shell.js";
-import styles from "ansi-styles";
 import * as ansi from "../utils/ansi.js";
 import { Command } from "commander";
 import which from "which";
 import { shellResourcesPath } from "../utils/constants.js";
 
 const ISTermOnDataEvent = "data";
+const ISTermBeforeDataEvent = "beforeData";
+const ISTermOnExitEvent = "exit";
+// Win32 scan codes for Ctrl+A through Ctrl+Z.
+const windowsControlScanCodes = [
+  0x1e, 0x30, 0x2e, 0x20, 0x12, 0x21, 0x22, 0x23, 0x17, 0x24, 0x25, 0x26, 0x32, 0x31, 0x18, 0x19, 0x10, 0x13, 0x1f, 0x14, 0x16, 0x2f, 0x11, 0x2d, 0x15, 0x2c,
+];
 
 type ISTermOptions = {
   env?: { [key: string]: string | undefined };
@@ -53,18 +59,19 @@ export class ISTerm implements IPty {
   readonly process: string;
   readonly handleFlowControl = false;
   readonly onData: IEvent<string>;
+  readonly onBeforeData: IEvent<void>;
   readonly onExit: IEvent<{ exitCode: number; signal?: number }>;
-  shellBuffer?: string;
   cwd: string = "";
   cursorHidden: boolean = false;
-  cursorShift: number = 0;
-  #alternateBuffer = false;
-  #alternateBufferTail = "";
   #alternateBufferOutput = false;
+  #pendingData: string[] = [];
+  #parsingData = false;
+  #pendingExit?: { exitCode: number; signal?: number };
 
   readonly #pty: IPty;
   readonly #ptyEmitter: EventEmitter;
   readonly #term: xterm.Terminal;
+  readonly #serializer = new SerializeAddon();
   readonly #commandManager: CommandManager;
   readonly #shell: Shell;
 
@@ -84,37 +91,28 @@ export class ISTerm implements IPty {
     this.process = this.#pty.process;
 
     const unicode11Addon = new Unicode11Addon();
-    this.#term = new xterm.Terminal({ allowProposedApi: true, rows, cols });
+    this.#term = new xterm.Terminal({ allowProposedApi: true, rows, cols, scrollback: 100000 });
     this.#term.loadAddon(unicode11Addon);
+    this.#term.loadAddon(this.#serializer);
     this.#term.unicode.activeVersion = "11";
 
     this.#term.parser.registerOscHandler(IsTermOscPs, (data) => this._handleIsSequence(data));
+    for (const final of ["h", "l"]) {
+      this.#term.parser.registerCsiHandler({ prefix: "?", final }, (params) => {
+        if (params.includes(25)) this.cursorHidden = final === "l";
+        return false;
+      });
+    }
     this.#commandManager = new CommandManager(this.#term, shell);
     this.#shell = shell;
 
     this.#ptyEmitter = new EventEmitter();
+    this.#term.buffer.onBufferChange(() => {
+      this.#alternateBufferOutput = true;
+    });
     this.#pty.onData((data) => {
-      const wasAlternateBuffer = this.#alternateBuffer;
-      const hasAlternateBufferSequence = this._handleAlternateBuffer(data);
-      this.#alternateBufferOutput = wasAlternateBuffer || this.#alternateBuffer || hasAlternateBufferSequence;
-      const cursorY = this.#term.buffer.active.cursorY;
-      this.#term.write(data, () => {
-        if (data.includes(ansi.cursorHide)) {
-          this.cursorHidden = true;
-        }
-        if (data.includes(ansi.cursorShow)) {
-          this.cursorHidden = false;
-        }
-        const newCursorY = this.#term.buffer.active.cursorY;
-        if (newCursorY > cursorY) {
-          this.cursorShift = newCursorY - cursorY;
-        } else {
-          this.cursorShift = 0;
-        }
-        log.debug({ msg: "parsing data", data, bytes: Uint8Array.from([...data].map((c) => c.charCodeAt(0))) });
-        this.#commandManager.termSync();
-        this.#ptyEmitter.emit(ISTermOnDataEvent, data);
-      });
+      this.#pendingData.push(data);
+      this._parseData();
     });
 
     this.onData = (listener) => {
@@ -123,7 +121,41 @@ export class ISTerm implements IPty {
         dispose: () => this.#ptyEmitter.removeListener(ISTermOnDataEvent, listener),
       };
     };
-    this.onExit = this.#pty.onExit;
+    this.#pty.onExit((event) => {
+      this.#pendingExit = event;
+      this._parseData();
+    });
+    this.onExit = (listener) => {
+      this.#ptyEmitter.on(ISTermOnExitEvent, listener);
+      return { dispose: () => this.#ptyEmitter.removeListener(ISTermOnExitEvent, listener) };
+    };
+    this.onBeforeData = (listener) => {
+      this.#ptyEmitter.on(ISTermBeforeDataEvent, listener);
+      return { dispose: () => this.#ptyEmitter.removeListener(ISTermBeforeDataEvent, listener) };
+    };
+  }
+
+  private _parseData(): void {
+    if (this.#parsingData) return;
+    if (this.#pendingData.length === 0) {
+      if (this.#pendingExit) {
+        const event = this.#pendingExit;
+        this.#pendingExit = undefined;
+        this.#ptyEmitter.emit(ISTermOnExitEvent, event);
+      }
+      return;
+    }
+    this.#parsingData = true;
+    const data = this.#pendingData.shift()!;
+    this.#ptyEmitter.emit(ISTermBeforeDataEvent);
+    this.#alternateBufferOutput = this.isAlternateBuffer();
+    this.#term.write(data, () => {
+      log.debug({ msg: "parsing data", data });
+      this.#commandManager.termSync();
+      this.#ptyEmitter.emit(ISTermOnDataEvent, data);
+      this.#parsingData = false;
+      this._parseData();
+    });
   }
   on(event: "data", listener: (data: string) => void): void;
   on(event: "exit", listener: (exitCode: number, signal?: number | undefined) => void): void;
@@ -174,22 +206,6 @@ export class ISTerm implements IPty {
     return true;
   }
 
-  private _handleAlternateBuffer(data: string): boolean {
-    const text = this.#alternateBufferTail + data;
-    let matched = false;
-    // eslint-disable-next-line no-control-regex
-    for (const match of text.matchAll(/\x1b\[\?(?:47|1047|1049)([hl])/g)) {
-      matched = true;
-      this.#alternateBuffer = match[1] === "h";
-    }
-    this.#alternateBufferTail = text.slice(-16);
-    return matched;
-  }
-
-  noop() {
-    this.#ptyEmitter.emit(ISTermOnDataEvent, "");
-  }
-
   resize(columns: number, rows: number) {
     this.cols = columns;
     this.rows = rows;
@@ -214,8 +230,17 @@ export class ISTerm implements IPty {
     this.#pty.resume();
   }
 
-  write(data: string): void {
+  write(data: string, applicationInput = false): void {
     log.debug({ msg: "reading data", data, bytes: Uint8Array.from([...data].map((c) => c.charCodeAt(0))) });
+    const code = data.length === 1 ? data.charCodeAt(0) : -1;
+    if (process.platform === "win32" && code > 0 && code < 27 && ![8, 9, 10, 13].includes(code)) {
+      // ConPTY needs a control modifier for apps reading Win32 key events.
+      const key = code + 64;
+      const scan = windowsControlScanCodes[code - 1];
+      const unicode = applicationInput ? code : code + 96;
+      this.#pty.write(`\x1b[${key};${scan};${unicode};1;8;1_\x1b[${key};${scan};${unicode};0;8;1_`);
+      return;
+    }
     this.#pty.write(data);
   }
 
@@ -225,17 +250,14 @@ export class ISTerm implements IPty {
 
   getCursorState() {
     return {
-      onLastLine: this.#term.buffer.active.cursorY >= this.#term.rows - 2,
-      remainingLines: Math.max(this.#term.rows - 2 - this.#term.buffer.active.cursorY, 0),
       cursorX: this.#term.buffer.active.cursorX,
       cursorY: this.#term.buffer.active.cursorY,
       hidden: this.cursorHidden,
-      shift: this.cursorShift,
     };
   }
 
   isAlternateBuffer(): boolean {
-    return this.#alternateBuffer || this.#term.buffer.active.type === "alternate";
+    return this.#term.buffer.active.type === "alternate";
   }
 
   isAlternateBufferOutput(): boolean {
@@ -290,14 +312,13 @@ export class ISTerm implements IPty {
   private _getAnsiColors(cell: ICellData | undefined): string {
     if (cell == null) return "";
     let bgAnsi = "";
-    cell.getBgColor;
-    cell.getFgColor;
     if (cell.isBgDefault()) {
       bgAnsi = "\x1b[49m";
     } else if (cell.isBgPalette()) {
       bgAnsi = `\x1b[48;5;${cell.getBgColor()}m`;
     } else {
-      bgAnsi = `\x1b[48;5;${styles.hexToAnsi256(cell.getBgColor().toString(16))}m`;
+      const color = cell.getBgColor();
+      bgAnsi = `\x1b[48;2;${color >> 16};${(color >> 8) & 255};${color & 255}m`;
     }
 
     let fgAnsi = "";
@@ -306,7 +327,8 @@ export class ISTerm implements IPty {
     } else if (cell.isFgPalette()) {
       fgAnsi = `\x1b[38;5;${cell.getFgColor()}m`;
     } else {
-      fgAnsi = `\x1b[38;5;${styles.hexToAnsi256(cell.getFgColor().toString(16))}m`;
+      const color = cell.getFgColor();
+      fgAnsi = `\x1b[38;2;${color >> 16};${(color >> 8) & 255};${color & 255}m`;
     }
     return bgAnsi + fgAnsi;
   }
@@ -315,8 +337,11 @@ export class ISTerm implements IPty {
     this.#commandManager.clearActiveCommand();
   }
 
-  getPatch(height: number, patches: ISTermPatch[], direction: "below" | "above"): string {
-    const currentCursorPosition = this.#term.buffer.active.cursorY + this.#term.buffer.active.baseY;
+  getSnapshot(): string {
+    return this.#serializer.serialize({ excludeModes: true, excludeAltBuffer: true });
+  }
+
+  getPatch(startY: number, height: number, patches: ISTermPatch[] = []): string {
     const viewportStart = this.#term.buffer.active.baseY;
     const viewportEnd = this.#term.buffer.active.baseY + this.#term.rows - 1;
     const writeLine = (y: number, patch?: ISTermPatch): string => {
@@ -375,27 +400,10 @@ export class ISTerm implements IPty {
     };
 
     const lines: string[] = [];
-    if (direction == "above") {
-      const startCursorPosition = currentCursorPosition - 1;
-      const endCursorPosition = currentCursorPosition - 1 - height;
-      let patchIdx = patches.length - 1;
-      for (let y = startCursorPosition; y > endCursorPosition; y--) {
-        const patch = patches[patchIdx];
-        lines.push(writeLine(y, patch));
-        patchIdx--;
-      }
-    } else {
-      const startCursorPosition = currentCursorPosition + 1;
-      const endCursorPosition = currentCursorPosition + 1 + height;
-      let patchIdx = 0;
-      for (let y = startCursorPosition; y < endCursorPosition; y++) {
-        const patch = patches[patchIdx];
-        lines.push(writeLine(y, patch));
-        patchIdx++;
-      }
+    for (let y = Math.max(startY, 0); y < Math.min(startY + height, this.rows); y++) {
+      lines.push(writeLine(viewportStart + y, patches[y - startY]));
     }
-
-    return (direction == "above" ? lines.reverse() : lines).join(ansi.cursorNextLine);
+    return lines.join(ansi.cursorNextLine);
   }
 }
 
@@ -424,7 +432,12 @@ const convertToPtyTarget = async (shell: Shell, underTest: boolean, login: boole
       break;
     case Shell.Powershell:
     case Shell.Pwsh:
-      shellArgs = ["-noexit", "-command", `try { . "${path.join(shellResourcesPath, "shellIntegration.ps1")}" } catch {}`];
+      shellArgs = [
+        "-noexit",
+        "-command",
+        `${underTest ? "Import-Module PSReadLine; " : ""}try { . "${path.join(shellResourcesPath, "shellIntegration.ps1")}" } catch {}`,
+      ];
+      if (underTest) shellArgs.unshift("-NoProfile");
       break;
     case Shell.Fish:
       shellArgs =

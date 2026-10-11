@@ -152,6 +152,19 @@ Specs for the `az`, `gcloud`, & `aws` CLIs are not supported in inshellisense du
 
 ## Contributing
 
+### Terminal regression scenarios
+
+After `npm run build`, run `npm run verify:terminal` on Windows with pwsh or Linux with zsh. The scenario starts a real PTY with an isolated home, checks small-screen completions, shrinking and expanding the window, preserved history, OSC color responses, Ctrl+C, alternate-screen transitions, and a second command. It leaves recordings in the printed temporary directory. To check a packaged executable, use `npm run verify:terminal -- --binary <executable>`.
+
+To replay the same recording through an installed JetBrains terminal engine, use JDK 17+ and the IDE's `lib` directory:
+
+```sh
+javac -d <temporary-class-directory> -cp "<IDE>/lib/*" scripts/ReplayTerminal.java
+java -cp "<temporary-class-directory>:<IDE>/lib/*" ReplayTerminal <artifacts>/events.terminal
+```
+
+On Windows, separate the two Java classpath entries with `;`. The replay compares each screen and cursor with the live xterm recording. A physical Termius session still needs a manual check of its mobile keyboard and window resizing.
+
 This project welcomes contributions and suggestions. Most contributions require you to agree to a
 Contributor License Agreement (CLA) declaring that you have the right to, and actually do, grant us
 the rights to use your contribution. For details, visit https://cla.opensource.microsoft.com.

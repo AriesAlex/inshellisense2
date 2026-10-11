@@ -32,7 +32,7 @@ unixPtyTest(
     const ptyProcess = await isterm.spawn(mockProgram, { shell: Shell.Zsh, rows: 24, cols: 240, underTest: true, login: false });
     try {
       await new Promise((resolve) => setTimeout(resolve, 1_000));
-      const patch = ptyProcess.getPatch(15, [], "below");
+      const patch = ptyProcess.getPatch(1, 15);
       expect(patch).toContain(cursorForward(240));
       expect(patch).not.toContain(cursorForward().repeat(2));
       expect(Buffer.byteLength(patch)).toBeLessThan(1_000);
