@@ -30,10 +30,10 @@ try {
     $checksumsPath = Join-Path $tempDirectory 'SHA256SUMS'
     Invoke-WebRequest -UseBasicParsing -Uri "$ReleaseUrl/SHA256SUMS" -OutFile $checksumsPath
     $checksums = [IO.File]::ReadAllText($checksumsPath)
-    $checksumLine = $checksums -split '\r?\n' | Where-Object { ($_ -split '\s+')[1] -eq $asset }
+    $checksumLine = $checksums -split '\r?\n' | Where-Object { (($_ -split '\s+')[1] -replace '^\*', '') -eq $asset }
     $expected = ($checksumLine -split '\s+')[0]
     $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
-    if (-not $expected -or $actual -ine $expected) { throw 'Release checksum mismatch' }
+    if (-not $expected -or $actual -ine $expected) { throw "Release checksum mismatch for $asset (expected '$expected', got '$actual')" }
     Expand-Archive -LiteralPath $archive -DestinationPath $tempDirectory -Force
     New-Item -ItemType Directory -Path $InstallDirectory -Force | Out-Null
     $destination = Join-Path $InstallDirectory 'inshellisense2.exe'

@@ -44,7 +44,7 @@ trap 'rm -rf -- "$temp_dir"' 0
 trap 'exit 1' 1 2 15
 curl -fLsS --retry 3 "$base/$asset" -o "$temp_dir/$asset"
 curl -fLsS --retry 3 "$base/SHA256SUMS" -o "$temp_dir/SHA256SUMS"
-expected=$(awk -v file="$asset" '$2 == file { print $1 }' "$temp_dir/SHA256SUMS")
+expected=$(awk -v file="$asset" '{ name=$2; sub(/^\*/, "", name); if (name == file) print $1 }' "$temp_dir/SHA256SUMS")
 if command -v sha256sum >/dev/null 2>&1; then
   actual=$(sha256sum "$temp_dir/$asset" | awk '{print $1}')
 else
