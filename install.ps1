@@ -27,7 +27,9 @@ New-Item -ItemType Directory -Path $tempDirectory -Force | Out-Null
 try {
     $archive = Join-Path $tempDirectory $asset
     Invoke-WebRequest -UseBasicParsing -Uri "$ReleaseUrl/$asset" -OutFile $archive
-    $checksums = (Invoke-WebRequest -UseBasicParsing -Uri "$ReleaseUrl/SHA256SUMS").Content
+    $checksumsPath = Join-Path $tempDirectory 'SHA256SUMS'
+    Invoke-WebRequest -UseBasicParsing -Uri "$ReleaseUrl/SHA256SUMS" -OutFile $checksumsPath
+    $checksums = [IO.File]::ReadAllText($checksumsPath)
     $checksumLine = $checksums -split '\r?\n' | Where-Object { ($_ -split '\s+')[1] -eq $asset }
     $expected = ($checksumLine -split '\s+')[0]
     $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash

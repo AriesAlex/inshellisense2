@@ -42,6 +42,13 @@ jobs:
       - name: Install zsh for live PTY verification
         if: runner.os == 'Linux'
         run: sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y zsh
+      - name: Secure runner completion directories
+        if: runner.os == 'Linux'
+        run: |
+          directories=$(zsh -fc 'autoload -Uz compaudit; compaudit' 2>/dev/null || true)
+          while IFS= read -r directory; do
+            if [ -n "$directory" ]; then sudo chmod go-w "$directory"; fi
+          done <<< "$directories"
       - run: npm ci --no-audit --no-fund
       - run: npm run build
       - run: npm run package

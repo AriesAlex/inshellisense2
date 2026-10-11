@@ -35,7 +35,7 @@ const server = http.createServer((request, response) => {
     return;
   }
   const file = path.join(releaseDirectory, name);
-  response.setHeader("Content-Type", name === "SHA256SUMS" ? "text/plain" : "application/octet-stream");
+  response.setHeader("Content-Type", "application/octet-stream");
   response.setHeader("Content-Length", fs.statSync(file).size);
   fs.createReadStream(file).pipe(response);
 });
