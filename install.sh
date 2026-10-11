@@ -58,4 +58,5 @@ cp "$temp_dir/$binary" "$staged_binary"
 chmod 755 "$staged_binary"
 mv -f "$staged_binary" "$install_dir/inshellisense2"
 "$install_dir/inshellisense2" init "$shell" --install
+cp "$temp_dir/LICENSE" "$temp_dir/THIRD_PARTY_NOTICES.txt" "$HOME/.inshellisense2/"
 printf '\nInstalled inshellisense2 %s. Open a new terminal.\n' "$version"

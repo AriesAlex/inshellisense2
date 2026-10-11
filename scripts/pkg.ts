@@ -53,16 +53,47 @@ const signBinary = (): void => {
 };
 
 // Build steps
-const buildBundle = async (): Promise<void> => {
-  await esbuild.build({
+const buildBundle = async (): Promise<esbuild.Metafile> => {
+  const result = await esbuild.build({
     entryPoints: ["build/index.js"],
     bundle: true,
     outfile: BUNDLE_PATH,
     platform: "node",
     format: "cjs",
     sourcemap: true,
+    metafile: true,
   });
   console.log(`Built bundle: ${BUNDLE_PATH}`);
+  return result.metafile!;
+};
+
+const writeThirdPartyNotices = (bundle: esbuild.Metafile): void => {
+  const packages = new Set<string>();
+  for (const input of [...Object.keys(bundle.inputs), getNodePtyPath(), getAutocompletePath()]) {
+    if (!input.includes("node_modules")) continue;
+    let directory = path.resolve(input);
+    if (fs.statSync(directory).isFile()) directory = path.dirname(directory);
+    while (true) {
+      const manifest = path.join(directory, "package.json");
+      if (fs.existsSync(manifest) && JSON.parse(fs.readFileSync(manifest, "utf8")).name) break;
+      const parent = path.dirname(directory);
+      if (parent === directory) throw new Error(`Cannot identify bundled package: ${input}`);
+      directory = parent;
+    }
+    packages.add(directory);
+  }
+  const nodeDirectory = process.platform === "win32" ? path.dirname(process.execPath) : path.dirname(path.dirname(process.execPath));
+  const notices = [`Node.js ${NODE_VERSION}\n\n${fs.readFileSync(path.join(nodeDirectory, "LICENSE"), "utf8")}`];
+  for (const directory of [...packages].sort()) {
+    const metadata = JSON.parse(fs.readFileSync(path.join(directory, "package.json"), "utf8"));
+    const license = fs.readdirSync(directory).find((name) => /^licen[cs]e(?:[.-].*)?$/i.test(name));
+    // These npm tarballs omit license files; pinned upstream originals live in licenses/.
+    const vendored = metadata.name.startsWith("@xterm/") ? "xterm.LICENSE" : metadata.name === "eastasianwidth" ? "eastasianwidth.LICENSE" : undefined;
+    if (!license && !vendored) throw new Error(`Missing bundled dependency license: ${metadata.name}`);
+    const licensePath = license ? path.join(directory, license) : path.join("licenses", vendored!);
+    notices.push(`${metadata.name} ${metadata.version}\n\n${fs.readFileSync(licensePath, "utf8")}`);
+  }
+  fs.writeFileSync(path.join(PKG_DIR, "THIRD_PARTY_NOTICES.txt"), notices.join("\n\n----------------------------------------\n\n"));
 };
 
 const bundleNodePtyWorker = async (): Promise<string> => {
@@ -194,7 +225,7 @@ const injectSeaBlob = async (): Promise<void> => {
 };
 
 const main = async (): Promise<void> => {
-  await buildBundle();
+  const bundle = await buildBundle();
   await applyBundlePatches();
   copyNodePtyNatives();
   copyAutocompleteSpecs();
@@ -203,6 +234,7 @@ const main = async (): Promise<void> => {
   generateSeaBlob();
   await injectSeaBlob();
   fs.copyFileSync("LICENSE", path.join(PKG_DIR, "LICENSE"));
+  writeThirdPartyNotices(bundle);
 };
 
 main().catch((err) => {

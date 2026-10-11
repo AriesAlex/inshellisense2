@@ -50,6 +50,7 @@ try {
     if ($ProfilePath) { $initArguments += @('--profile', $ProfilePath) }
     & $destination @initArguments
     if ($LASTEXITCODE -ne 0) { throw "Shell initialization failed: $LASTEXITCODE" }
+    Copy-Item -LiteralPath (Join-Path $tempDirectory 'LICENSE'), (Join-Path $tempDirectory 'THIRD_PARTY_NOTICES.txt') -Destination (Join-Path $env:USERPROFILE '.inshellisense2')
     $env:PATH = $InstallDirectory + [IO.Path]::PathSeparator + $env:PATH
     Write-Host "Installed inshellisense2 $Version. Open a new terminal."
 } finally {

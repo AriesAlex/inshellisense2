@@ -85,7 +85,7 @@ The live PTY scenarios cover small screens, resizing, long history, OSC replies,
 
 After creating the native release archive and its `SHA256SUMS` in `pkg/`, run `npm run verify:install`. It installs twice with closed stdin into isolated home directories, starts real interactive and login shells, checks profile preservation and consecutive commands, and uninstalls its managed blocks. The release workflow runs both verification scripts on every platform.
 
-Release builds are dispatched manually through GitHub Actions and contain only the executable and MIT license, with a shared SHA256SUMS file. Bug reports should include the OS, shell, terminal client, version, and reproduction steps.
+Release builds are dispatched manually through GitHub Actions and contain the executable, MIT license, and bundled dependency notices, with a shared SHA256SUMS file. Bug reports should include the OS, shell, terminal client, version, and reproduction steps.
 
 ## License
 

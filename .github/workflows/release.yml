@@ -66,12 +66,12 @@ jobs:
           BINARY_PLATFORM: ${{ matrix.platform }}
         run: |
           chmod +x "pkg/inshellisense2-$BINARY_PLATFORM"
-          tar -czf "pkg/inshellisense2-$BINARY_PLATFORM.tar.gz" -C pkg "inshellisense2-$BINARY_PLATFORM" LICENSE
+          tar -czf "pkg/inshellisense2-$BINARY_PLATFORM.tar.gz" -C pkg "inshellisense2-$BINARY_PLATFORM" LICENSE THIRD_PARTY_NOTICES.txt
       - name: Archive Windows release
         if: runner.os == 'Windows'
         env:
           BINARY_PLATFORM: ${{ matrix.platform }}
-        run: Compress-Archive -LiteralPath "pkg/inshellisense2-$env:BINARY_PLATFORM.exe", 'pkg/LICENSE' -DestinationPath "pkg/inshellisense2-$env:BINARY_PLATFORM.zip"
+        run: Compress-Archive -LiteralPath "pkg/inshellisense2-$env:BINARY_PLATFORM.exe", 'pkg/LICENSE', 'pkg/THIRD_PARTY_NOTICES.txt' -DestinationPath "pkg/inshellisense2-$env:BINARY_PLATFORM.zip"
       - name: Verify automatic installation
         shell: bash
         env:
