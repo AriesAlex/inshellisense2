@@ -1,0 +1,106 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag matching package.json
+        required: true
+        default: v1.0.0
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux-x64
+          - os: ubuntu-24.04-arm
+            platform: linux-arm64
+          - os: windows-latest
+            platform: win32-x64
+          - os: windows-11-arm
+            platform: win32-arm64
+          - os: macos-15-intel
+            platform: darwin-x64
+          - os: macos-latest
+            platform: darwin-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.21.1
+      - name: Check release version
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: node -e "if ('v' + require('./package.json').version !== process.env.RELEASE_TAG) process.exit(1)"
+      - name: Install zsh for live PTY verification
+        if: runner.os == 'Linux'
+        run: sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y zsh
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - run: npm run package
+      - name: Verify packaged terminal behavior
+        shell: bash
+        env:
+          BINARY_PLATFORM: ${{ matrix.platform }}
+        run: |
+          binary="pkg/inshellisense2-$BINARY_PLATFORM"
+          if [ "$RUNNER_OS" = Windows ]; then binary="$binary.exe"; fi
+          npm run verify:terminal -- --binary "$binary"
+      - name: Archive Unix release
+        if: runner.os != 'Windows'
+        env:
+          BINARY_PLATFORM: ${{ matrix.platform }}
+        run: |
+          chmod +x "pkg/inshellisense2-$BINARY_PLATFORM"
+          tar -czf "pkg/inshellisense2-$BINARY_PLATFORM.tar.gz" -C pkg "inshellisense2-$BINARY_PLATFORM" LICENSE
+      - name: Archive Windows release
+        if: runner.os == 'Windows'
+        env:
+          BINARY_PLATFORM: ${{ matrix.platform }}
+        run: Compress-Archive -LiteralPath "pkg/inshellisense2-$env:BINARY_PLATFORM.exe", 'pkg/LICENSE' -DestinationPath "pkg/inshellisense2-$env:BINARY_PLATFORM.zip"
+      - name: Verify automatic installation
+        shell: bash
+        env:
+          BINARY_PLATFORM: ${{ matrix.platform }}
+        run: |
+          cd pkg
+          asset="inshellisense2-$BINARY_PLATFORM.tar.gz"
+          if [ "$RUNNER_OS" = Windows ]; then asset="inshellisense2-$BINARY_PLATFORM.zip"; fi
+          sha256sum "$asset" > SHA256SUMS
+          cd ..
+          npm run verify:install
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: |
+            pkg/*.tar.gz
+            pkg/*.zip
+          if-no-files-found: error
+
+  draft:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+      - name: Create checksummed draft release
+        working-directory: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          sha256sum *.tar.gz *.zip > SHA256SUMS
+          gh release create "$RELEASE_TAG" *.tar.gz *.zip SHA256SUMS --draft --target "$RELEASE_COMMIT" --title "$RELEASE_TAG" --notes "Self-contained inshellisense2 binaries for Windows, Linux, and macOS (x64 and ARM64). See README for automatic shell installation."

@@ -48,7 +48,6 @@ const copyFiles = async (assetType: AssetType, files: string[], sourceFolder: st
     files.map(async (file) => {
       const sourcePath = path.join(sourceFolder, file);
       const destPath = path.join(getAssetFolder(assetType), file);
-      if (fs.existsSync(destPath)) return;
       await fsAsync.mkdir(path.dirname(destPath), { recursive: true });
       await fsAsync.copyFile(sourcePath, destPath);
     }),
@@ -60,7 +59,6 @@ const copyAssets = async (assetType: AssetType) => {
     getAssetKeys(assetType).map(async (assetKey) => {
       const assetPath = assetKey.replaceAll(ASSET_PATH_SEP, path.sep);
       const outputPath = path.join(getAssetFolder(assetType), assetPath);
-      if (fs.existsSync(outputPath)) return;
       const assetBlob = sea.getRawAsset(assetKey);
       await fsAsync.mkdir(path.dirname(outputPath), { recursive: true });
       await fsAsync.writeFile(outputPath, Buffer.from(assetBlob));
@@ -130,6 +128,7 @@ export const checkUnpackedVersion = async (): Promise<boolean> => {
 };
 
 export const unpackResources = async (): Promise<void> => {
+  if (await checkUnpackedVersion()) return;
   await unpackNativeModules();
   await permissionNativeModules();
   await unpackShellFiles();

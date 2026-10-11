@@ -4,12 +4,13 @@
 import { Command } from "commander";
 import { render } from "../ui/ui-uninstall.js";
 
-const action = async () => {
-  await render();
+const action = async (options: { profile?: string }) => {
+  await render(options.profile);
 };
 
 const cmd = new Command("uninstall");
-cmd.description(`removes all cache resources and configuration for inshellisense`);
+cmd.description(`removes automatic startup and cache resources for inshellisense2`);
+cmd.option("--profile <path>", "remove startup from a custom profile");
 cmd.action(action);
 
 export default cmd;

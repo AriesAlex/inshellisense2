@@ -140,13 +140,13 @@ describe(`path suggestions`, () => {
   test("sorts path prefix matches before substring matches", async () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "inshellisense-path-rank-"));
     try {
-      fs.mkdirSync(path.join(cwd, "inshellisense"));
+      fs.mkdirSync(path.join(cwd, "inshellisense2"));
       fs.mkdirSync(path.join(cwd, "server"));
 
       const suggestions = await getSuggestions("cd se", cwd, Shell.Bash);
       const names = suggestions?.suggestions.map((s) => s.name) ?? [];
 
-      expect(names.indexOf("server")).toBeLessThan(names.indexOf("inshellisense"));
+      expect(names.indexOf("server")).toBeLessThan(names.indexOf("inshellisense2"));
     } finally {
       fs.rmSync(cwd, { recursive: true, force: true });
     }

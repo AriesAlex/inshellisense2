@@ -431,14 +431,14 @@ const convertToPtyTarget = async (shell: Shell, underTest: boolean, login: boole
       shellArgs = ["--init-file", path.join(shellResourcesPath, "shellIntegration.bash")];
       break;
     case Shell.Powershell:
-    case Shell.Pwsh:
-      shellArgs = [
-        "-noexit",
-        "-command",
-        `${underTest ? "Import-Module PSReadLine; " : ""}try { . "${path.join(shellResourcesPath, "shellIntegration.ps1")}" } catch {}`,
-      ];
-      if (underTest) shellArgs.unshift("-NoProfile");
+    case Shell.Pwsh: {
+      const customProfile = process.env.INSHELLISENSE2_PS_PROFILE;
+      const profileCommand = customProfile ? `. '${customProfile.replaceAll("'", "''")}'; ` : "";
+      const integration = path.join(shellResourcesPath, "shellIntegration.ps1").replaceAll("'", "''");
+      shellArgs = ["-noexit", "-command", `Import-Module PSReadLine; ${profileCommand}try { . '${integration}' } catch { Write-Error $_; exit 1 }`];
+      if (underTest || customProfile) shellArgs.unshift("-NoProfile");
       break;
+    }
     case Shell.Fish:
       shellArgs =
         platform == "win32"
@@ -489,6 +489,8 @@ const convertToPtyEnv = (shell: Shell, underTest: boolean, login: boolean) => {
   if (login) env.ISTERM_LOGIN = "1";
 
   switch (shell) {
+    case Shell.Sh:
+      return { ...env, ENV: path.join(shellResourcesPath, "shellIntegration.sh"), USER_SH_ENV: process.env.INSHELLISENSE2_SH_ENV ?? process.env.ENV ?? "" };
     case Shell.Cmd: {
       if (underTest) {
         return { ...env, PROMPT: `${IstermPromptStart}$G ${IstermPromptEnd}` };
@@ -497,7 +499,7 @@ const convertToPtyEnv = (shell: Shell, underTest: boolean, login: boolean) => {
       return { ...env, PROMPT: `${IstermPromptStart}${prompt}${IstermPromptEnd}` };
     }
     case Shell.Zsh: {
-      return { ...env, ZDOTDIR: zdotdir(underTest), USER_ZDOTDIR: userZdotdir };
+      return { ...env, ZDOTDIR: zdotdir(), USER_ZDOTDIR: userZdotdir };
     }
   }
 

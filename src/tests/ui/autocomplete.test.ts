@@ -33,7 +33,7 @@ const configs = os.platform() == "win32" ? windowsConfigs : unixConfigs;
 configs.map((config) => {
   const returnChar = config.shell == "xonsh" ? "\n" : "\r";
   test.describe(`[${config.label}]`, () => {
-    test.use({ program: { file: "is", args: ["-V", "-T", "-s", config.shell] }, ...(config.env ? { env: config.env } : {}) });
+    test.use({ program: { file: "inshellisense2", args: ["-V", "-T", "-s", config.shell] }, ...(config.env ? { env: config.env } : {}) });
 
     test("basic git suggestions", async ({ terminal }) => {
       await expect(terminal.getByText(">  ")).toBeVisible();

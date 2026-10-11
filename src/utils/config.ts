@@ -91,10 +91,10 @@ const configSchema = {
   additionalProperties: false,
 };
 
-const rcFile = ".inshellisenserc";
+const rcFile = ".inshellisense2rc";
 const xdgFile = "rc.toml";
 const rcPath = path.join(os.homedir(), rcFile);
-const xdgPath = path.join(os.homedir(), ".config", "inshellisense", xdgFile);
+const xdgPath = path.join(os.homedir(), ".config", "inshellisense2", xdgFile);
 
 const configPaths = [rcPath, xdgPath];
 

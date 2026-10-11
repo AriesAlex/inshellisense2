@@ -15,16 +15,19 @@ import {
 import fs from "node:fs";
 
 export const render = async () => {
+  if (process.platform === "win32" && process.env.ISTERM) {
+    throw new Error("Close inshellisense2 terminals and run reinit from PowerShell -NoProfile to release native modules.");
+  }
   fs.rmSync(shellResourcesPath, { recursive: true, force: true });
   fs.rmSync(nativeResourcesPath, { recursive: true, force: true });
   fs.rmSync(loggingResourcesPath, { recursive: true, force: true });
   fs.rmSync(initResourcesPath, { recursive: true, force: true });
   fs.rmSync(specResourcesPath, { recursive: true, force: true });
   fs.rmSync(versionResourcePath, { force: true });
-  process.stdout.write(chalk.green("✓") + " removed old inshellisense resources \n");
+  process.stdout.write(chalk.green("✓") + " removed old inshellisense2 resources \n");
 
   await createShellConfigs();
   await unpackResources();
 
-  process.stdout.write(chalk.green("✓") + " successfully installed inshellisense \n");
+  process.stdout.write(chalk.green("✓") + " successfully installed inshellisense2 \n");
 };

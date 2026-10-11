@@ -1,186 +1,92 @@
-# inshellisense
+# inshellisense2
 
-`inshellisense` provides IDE style autocomplete for shells. It's a terminal native runtime for [autocomplete](https://github.com/withfig/autocomplete) which has support for 600+ command line tools. `inshellisense` supports Windows, Linux, & macOS.
+Terminal autocomplete for PowerShell, Bash, Zsh, and POSIX sh. Suggestions appear while you type: commands, options, subcommands, files, and directories, backed by Fig completion specifications.
 
-<p align="center"><img alt="demo of inshellisense working" src="/docs/demo.gif"/></p>
+This is an independently maintained MIT-licensed fork of [Microsoft inshellisense](https://github.com/microsoft/inshellisense), based on upstream commit [9c7f5fd](https://github.com/microsoft/inshellisense/commit/9c7f5fd). It focuses on dependable terminal behavior and installation on real desktops, SSH sessions, and small mobile screens.
 
-## Getting Started
+## Install
 
-### Installation
-
-**npm (recommended)**
-```shell
-npm install -g @microsoft/inshellisense
-is init
-```
-**homebrew (macOS/linux)**
-```shell
-brew tap microsoft/inshellisense https://github.com/microsoft/inshellisense
-brew install inshellisense
-is init
-```
-
-### Updating
-
-```shell
-npm install -g @microsoft/inshellisense # OR brew upgrade inshellisense
-is reinit
-```
-
-### Quickstart
-
-After completing the installation, run `is doctor` to verify your installation was successful. You can run `is` to start the autocomplete session for your desired shell. Additionally, inshellisense is also aliased under `inshellisense` after installation.
-
-### Shell Plugin
-
-If you'd like to automatically start inshellisense when you open your shell, run the respective command for your shell. After running the command, inshellisense will automatically open when you start any new shell session:
-
-```shell
-# bash
-is init bash >> ~/.bashrc
-
-# zsh
-is init zsh >> ~/.zshrc
-
-# fish
-is init fish >> ~/.config/fish/config.fish
-
-# pwsh
-is init pwsh | Add-Content $profile
-
-# powershell
-is init powershell | Add-Content $profile
-
-# xonsh
-is init xonsh >> ~/.xonshrc
-
-# nushell
-is init nu | save $nu.env-path --append
-```
-
-> [!NOTE]  
-> When updating your shell configuration in the future, make sure the inshellisense plugin is the last command in the file. Including commands after it may break the configuration (ex. initializing your shell plugin manager after the inshellisense plugin)
-
-### Usage
-
-| Action                                | Command | Description                                      |
-| ------------------------------------- | ------- | ------------------------------------------------ |
-| Start                                 | `is`    | Start inshellisense session on the current shell |
-| Stop                                  | `exit`  | Stop inshellisense session on the current shell  |
-| Check If Inside Inshellisense Session | `is -c` | Check if shell inside inshellisense session      |
-
-#### Keybindings
-
-All other keys are passed through to the shell. The keybindings below are only captured when the inshellisense suggestions are visible, otherwise they are passed through to the shell as well. These can be customized in the [config](#configuration).
-
-| Action                    | Keybinding     |
-| ------------------------- | -------------- |
-| Accept Current Suggestion | <kbd>tab</kbd> |
-| View Next Suggestion      | <kbd>↓</kbd>   |
-| View Previous Suggestion  | <kbd>↑</kbd>   |
-| Dismiss Suggestions       | <kbd>esc</kbd> |
-
-## Integrations
-
-inshellisense supports the following shells:
-
-- [bash](https://www.gnu.org/software/bash/)
-- [zsh](https://www.zsh.org/)
-- [fish](https://github.com/fish-shell/fish-shell)
-- [pwsh](https://github.com/PowerShell/PowerShell)
-- [powershell](https://learn.microsoft.com/en-us/powershell/scripting/windows-powershell/starting-windows-powershell) (Windows Powershell)
-- [cmd](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/cmd) _(experimental)_
-- [xonsh](https://xon.sh/)
-- [nushell](https://www.nushell.sh/)
-
-## Configuration
-
-All configuration is done through a [toml](https://toml.io/) file. You can create this file at `~/.inshellisenserc` or, for XDG compliance, at `~/.config/inshellisense/rc.toml`. The [JSON schema](https://json-schema.org/) for the configuration file can be found [here](https://github.com/microsoft/inshellisense/blob/main/src/utils/config.ts).
-
-### Keybindings
-
-You can customize the keybindings for inshellisense by adding a `bindings` section to your config file. The following is the default configuration for the [keybindings](#keybindings):
-
-```toml
-[bindings.acceptSuggestion]
-key = "tab"
-# shift and ctrl are optional and default to false
-shift = false
-ctrl = false
-
-[bindings.nextSuggestion]
-key = "down"
-
-[bindings.previousSuggestion]
-key = "up"
-
-[bindings.dismissSuggestions]
-key = "escape"
-```
-
-Key names are matched against the Node.js [keypress](https://nodejs.org/api/readline.html#readlineemitkeypresseventsstream-interface) events.
-
-### Alias Expansion
-
-Inshellisense supports expanding aliases for bash/zsh shells. You can enable alias expansion in your config file:
-
-```toml
-useAliases = true
-```
-
-### NerdFonts
-
-If you are using a [NerdFont](https://www.nerdfonts.com/) patched font, you can enable the NerdFonts support in your config file:
-
-```toml
-useNerdFont = true
-```
-
-### Max Suggestions
-
-You can change the maximum number of suggestions displayed in the autocomplete list at one time in your config file:
-
-
-```toml
-maxSuggestions = 10
-```
-
-
-## Unsupported Specs
-
-Specs for the `az`, `gcloud`, & `aws` CLIs are not supported in inshellisense due to their large size.
-
-## Contributing
-
-### Terminal regression scenarios
-
-After `npm run build`, run `npm run verify:terminal` on Windows with pwsh or Linux with zsh. The scenario starts a real PTY with an isolated home, checks small-screen completions, shrinking and expanding the window, preserved history, OSC color responses, Ctrl+C, alternate-screen transitions, and a second command. It leaves recordings in the printed temporary directory. To check a packaged executable, use `npm run verify:terminal -- --binary <executable>`.
-
-To replay the same recording through an installed JetBrains terminal engine, use JDK 17+ and the IDE's `lib` directory:
+Linux / macOS:
 
 ```sh
-javac -d <temporary-class-directory> -cp "<IDE>/lib/*" scripts/ReplayTerminal.java
-java -cp "<temporary-class-directory>:<IDE>/lib/*" ReplayTerminal <artifacts>/events.terminal
+curl -fsSL https://raw.githubusercontent.com/AriesAlex/inshellisense2/main/install.sh | sh
 ```
 
-On Windows, separate the two Java classpath entries with `;`. The replay compares each screen and cursor with the live xterm recording. A physical Termius session still needs a manual check of its mobile keyboard and window resizing.
+Windows, from PowerShell:
 
-This project welcomes contributions and suggestions. Most contributions require you to agree to a
-Contributor License Agreement (CLA) declaring that you have the right to, and actually do, grant us
-the rights to use your contribution. For details, visit https://cla.opensource.microsoft.com.
+```powershell
+irm https://raw.githubusercontent.com/AriesAlex/inshellisense2/main/install.ps1 | iex
+```
 
-When you submit a pull request, a CLA bot will automatically determine whether you need to provide
-a CLA and decorate the PR appropriately (e.g., status check, comment). Simply follow the instructions
-provided by the bot. You will only need to do this once across all repos using our CLA.
+Open a new terminal afterward. The installer downloads a self-contained release, verifies SHA-256, and configures your shell automatically. No Node.js, npm, compiler, administrator account, or interactive installation dialog is required. The default executable location is `~/.local/bin`.
 
-This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/).
-For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or
-contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.
+Re-run the same command to update. Existing profile content is preserved; repeated installation updates one managed block rather than adding another.
 
-## Trademarks
+The Unix installer selects your login shell from `$SHELL`. To select another shell:
 
-This project may contain trademarks or logos for projects, products, or services. Authorized use of Microsoft
-trademarks or logos is subject to and must follow
-[Microsoft's Trademark & Brand Guidelines](https://www.microsoft.com/en-us/legal/intellectualproperty/trademarks/usage/general).
-Use of Microsoft trademarks or logos in modified versions of this project must not cause confusion or imply Microsoft sponsorship.
-Any use of third-party trademarks or logos are subject to those third-party's policies.
+```sh
+curl -fsSL https://raw.githubusercontent.com/AriesAlex/inshellisense2/main/install.sh | sh -s -- --shell zsh
+```
+
+Supported release platforms: Windows, Linux with glibc, and macOS; x64 and ARM64. Automatic startup supports PowerShell 7, Windows PowerShell 5.1, Bash, Zsh, and POSIX sh (including dash). Fish, Nushell, and Xonsh retain the upstream runtime integrations and can be launched explicitly with `inshellisense2 -s <shell>`.
+
+For sh, the installer configures `~/.profile` and its standard `ENV` hook. Start a new login session once to make that hook available to subsequent interactive sh sessions. Existing `ENV` configuration is loaded inside the wrapped shell.
+
+## Why this fork
+
+The changes since the upstream base address several everyday problems:
+
+- Terminal protocol replies stay intact instead of becoming typed text, including OSC color replies from full-screen applications.
+- Ctrl+C, alternate-screen applications, ordered output, and completion redraws share a consistent terminal state.
+- Menus fit the available width and height. Resizing preserves terminal history without leaving suggestion boxes in scrollback.
+- Cursor save/restore works in JetBrains terminals. True-color text stays true-color when an overlay is removed.
+- Completion helpers run outside the foreground terminal session, avoiding job-control conflicts and lost input.
+- Command suggestions reflect executable commands on PATH and shell builtins, aliases, and functions. Path suggestions handle parent directories, prefixes, hidden files, and both Windows path separators.
+- Standalone executables include their native modules and completion specs. Installation does not depend on a global `is` command or the user’s Node version.
+
+The startup integration incorporates the lifecycle fixes developed alongside portable dotfiles: start before prompt frameworks, preserve login mode, load user profiles inside the wrapped shell, prevent recursion through `ISTERM`, and keep interactive UI out of scripts and redirected sessions.
+
+Prompt frameworks must finish rendering before the command-input marker. With Oh My Posh, use a synchronous theme (`async: false`); asynchronous prompt redraws can otherwise move that boundary. Zsh integration installs its ZLE hook after the user’s prompt framework has initialized.
+
+## Use and configure
+
+Tab accepts a suggestion; Up/Down select one; Escape dismisses the menu. Your shell continues to execute commands normally.
+
+Optional configuration lives in `~/.config/inshellisense2/rc.toml`:
+
+```toml
+maxSuggestions = 5
+useAliases = true
+useNerdFont = false
+
+[bindings.acceptSuggestion]
+key = "tab"
+```
+
+The [configuration schema](src/utils/config.ts) lists the available bindings and custom completion-spec paths. The large AWS, Azure, and Google Cloud spec trees are excluded from the bundled release.
+
+Use `inshellisense2 doctor` to check unpacked resources. For manually managed dotfiles, `inshellisense2 init zsh` prints a source command without changing profiles; `inshellisense2 init zsh --install` installs automatic startup. `--profile <path>` selects a custom startup file.
+
+`inshellisense2 uninstall` removes its managed startup blocks and cache. On Windows, close other inshellisense2 terminals first to release native modules. Delete the executable from `~/.local/bin` afterward. Your existing profile content and optional TOML configuration remain.
+
+## Development
+
+Use Node.js 22.21.1 and npm:
+
+```sh
+npm ci
+npm run build
+npm run verify:terminal
+npm run package
+npm run verify:terminal -- --binary pkg/inshellisense2-linux-x64
+```
+
+The live PTY scenarios cover small screens, resizing, long history, OSC replies, Ctrl+C, alternate screens, and consecutive commands. They print a temporary recording directory. `scripts/ReplayTerminal.java` replays those recordings through an installed JetBrains terminal engine and checks each screen and cursor.
+
+After creating the native release archive and its `SHA256SUMS` in `pkg/`, run `npm run verify:install`. It installs twice with closed stdin into isolated home directories, starts real interactive and login shells, checks profile preservation and consecutive commands, and uninstalls its managed blocks. The release workflow runs both verification scripts on every platform.
+
+Release builds are dispatched manually through GitHub Actions and contain only the executable and MIT license, with a shared SHA256SUMS file. Bug reports should include the OS, shell, terminal client, version, and reproduction steps.
+
+## License
+
+[MIT](LICENSE). Original Microsoft copyright and license notices are retained. This fork is maintained independently and is not a Microsoft product.

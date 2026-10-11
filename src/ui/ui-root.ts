@@ -14,11 +14,11 @@ import { getMaxLines, type KeyPressEvent } from "./suggestionManager.js";
 
 export const renderConfirmation = (live: boolean): string => {
   const statusMessage = live ? chalk.green("live") : chalk.red("not found");
-  return `inshellisense session [${statusMessage}]\n`;
+  return `inshellisense2 session [${statusMessage}]\n`;
 };
 
 export const renderMissingResources = (): string => {
-  return chalk.red(`inshellisense resources out of date, run "is reinit" to refresh\n`);
+  return chalk.red(`inshellisense2 resources out of date, run "inshellisense2 reinit" to refresh\n`);
 };
 
 const writeOutput = (data: string) => {

@@ -1,14 +1,13 @@
 {
-  "name": "@microsoft/inshellisense",
-  "version": "0.0.1",
-  "description": "IDE style command line auto complete",
+  "name": "inshellisense2",
+  "version": "1.0.0",
+  "description": "Terminal autocomplete with reliable shell integration",
   "type": "module",
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   },
   "bin": {
-    "inshellisense": "./build/index.js",
-    "is": "./build/index.js"
+    "inshellisense2": "./build/index.js"
   },
   "files": [
     "build/**",
@@ -20,27 +19,27 @@
   "scripts": {
     "build": "tsc",
     "package": "tsx ./scripts/pkg.ts",
-    "package:base": "tsx ./scripts/pkg-base.ts",
     "dev": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import=tsx src/index.ts -V",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "test:e2e": "npx @microsoft/tui-test",
     "verify:terminal": "tsx scripts/verify-terminal.ts",
+    "verify:install": "tsx scripts/verify-install.ts",
     "lint": "eslint src/ --ext .ts,.tsx && prettier src/ --check",
     "lint:fix": "eslint src/ --ext .ts,.tsx --fix && prettier src/ --write",
     "debug": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --inspect --import=tsx src/index.ts -V"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/microsoft/inshellisense.git"
+    "url": "git+https://github.com/AriesAlex/inshellisense2.git"
   },
   "author": {
-    "name": "Microsoft Corporation"
+    "name": "AriesAlex"
   },
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/microsoft/inshellisense/issues"
+    "url": "https://github.com/AriesAlex/inshellisense2/issues"
   },
-  "homepage": "https://github.com/microsoft/inshellisense#readme",
+  "homepage": "https://github.com/AriesAlex/inshellisense2#readme",
   "dependencies": {
     "@withfig/autocomplete": "2.675.0",
     "@xterm/addon-serialize": "^0.14.0",
@@ -82,6 +81,7 @@
     "jest": "^29.7.0",
     "lint-staged": "^15.2.2",
     "prettier": "3.0.3",
+    "postject": "1.0.0-alpha.6",
     "ts-jest": "^29.1.1",
     "tsx": "^4.19.1",
     "typescript": "^5.2.2"
@@ -91,5 +91,6 @@
       "eslint --fix",
       "prettier --write"
     ]
-  }
+  },
+  "private": true
 }

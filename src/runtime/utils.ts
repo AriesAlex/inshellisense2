@@ -52,6 +52,7 @@ const needsQuoted = (value: string, quoteChar: QuoteChar): boolean => isQuoted(v
 
 const getShellQuoteChar = (shell: Shell): QuoteChar => {
   switch (shell) {
+    case Shell.Sh:
     case Shell.Zsh:
     case Shell.Bash:
     case Shell.Fish:
@@ -70,6 +71,7 @@ const getShellQuoteChar = (shell: Shell): QuoteChar => {
 
 export const getShellWhitespaceEscapeChar = (shell: Shell): string => {
   switch (shell) {
+    case Shell.Sh:
     case Shell.Zsh:
     case Shell.Bash:
     case Shell.Fish:

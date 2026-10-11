@@ -13,6 +13,8 @@ import { shellResourcesPath, initResourcesPath } from "./constants.js";
 import childProcess from "node:child_process";
 import { KeyPressEvent } from "../ui/suggestionManager.js";
 import log from "./log.js";
+import sea from "node:sea";
+import { fileURLToPath } from "node:url";
 
 const exec = util.promisify(childProcess.exec);
 const safeExec = async (command: string, options?: childProcess.ExecOptions) => {
@@ -27,6 +29,7 @@ const safeExec = async (command: string, options?: childProcess.ExecOptions) => 
 };
 
 export enum Shell {
+  Sh = "sh",
   Bash = "bash",
   Powershell = "powershell",
   Pwsh = "pwsh",
@@ -38,6 +41,7 @@ export enum Shell {
 }
 
 export const supportedShells = [
+  process.platform !== "win32" ? Shell.Sh : null,
   Shell.Bash,
   process.platform == "win32" ? Shell.Powershell : null,
   Shell.Pwsh,
@@ -52,69 +56,34 @@ export const initSupportedShells = supportedShells.filter((shell) => shell != Sh
 export const aliasSupportedShells = [Shell.Bash, Shell.Zsh];
 
 export const userZdotdir = process.env?.ZDOTDIR ?? os.homedir() ?? `~`;
-export const zdotdir = (underTest: boolean) => path.join(os.tmpdir(), underTest ? `is-zsh-${process.pid}` : `is-zsh`);
-
-export const checkShellConfigs = (): Shell[] => {
-  const shellsWithoutConfigs: Shell[] = [];
-  for (const shell of supportedShells) {
-    const shellConfigName = getShellConfigName(shell);
-    if (shellConfigName == null) continue;
-    if (!fs.existsSync(path.join(initResourcesPath, shell, shellConfigName))) {
-      shellsWithoutConfigs.push(shell);
-    }
+let zshDotdir: string | undefined;
+export const zdotdir = () => {
+  if (!zshDotdir) {
+    zshDotdir = fs.mkdtempSync(path.join(os.tmpdir(), "inshellisense2-zsh-"));
+    const directory = zshDotdir;
+    process.once("exit", () => fs.rmSync(directory, { recursive: true, force: true }));
   }
-  return shellsWithoutConfigs;
+  return zshDotdir;
 };
 
-export const checkLegacyConfigs = async (): Promise<Shell[]> => {
-  const shellsWithLegacyConfig: Shell[] = [];
-  for (const shell of supportedShells) {
-    const profilePath = await getProfilePath(shell);
-    if (profilePath != null && fs.existsSync(profilePath)) {
-      const profile = await fsAsync.readFile(profilePath, "utf8");
-      if (profile.includes("inshellisense shell plugin")) {
-        shellsWithLegacyConfig.push(shell);
-      }
-      if (profile.includes(`~/.inshellisense/${shell}/init.`)) {
-        shellsWithLegacyConfig.push(shell);
-      }
-    }
-  }
-  return shellsWithLegacyConfig;
-};
-
-export const checkShellConfigPlugin = async () => {
-  const shellsWithoutPlugin: Shell[] = [];
-  const shellsWithBadPlugin: Shell[] = [];
-  for (const shell of supportedShells) {
-    const profilePath = await getProfilePath(shell);
-    if (profilePath != null && fs.existsSync(profilePath)) {
-      const profile = await fsAsync.readFile(profilePath, "utf8");
-
-      const shellSourceCommand = getShellSourceCommand(shell).trim();
-      const profileContainsSource = profile.includes(shellSourceCommand);
-      const profileEndsWithSource = profile.trimEnd().endsWith(shellSourceCommand);
-
-      if (!profileContainsSource) {
-        shellsWithoutPlugin.push(shell);
-      } else if (!profileEndsWithSource) {
-        shellsWithBadPlugin.push(shell);
-      }
-    }
-  }
-  return { shellsWithoutPlugin, shellsWithBadPlugin };
-};
-
-const getProfilePath = async (shell: Shell): Promise<string | undefined> => {
+export const getProfilePath = async (shell: Shell): Promise<string | undefined> => {
   switch (shell) {
+    case Shell.Sh:
+      return path.join(os.homedir(), ".profile");
     case Shell.Bash:
       return path.join(os.homedir(), ".bashrc");
     case Shell.Powershell:
-      return (await safeExec(`echo $profile`, { shell, timeout: 5_000 })).stdout?.toString()?.trim();
     case Shell.Pwsh:
-      return (await safeExec(`echo $profile`, { shell, timeout: 5_000 })).stdout?.toString()?.trim();
+      try {
+        const { stdout } = await util.promisify(childProcess.execFile)(shell, ["-NoProfile", "-NonInteractive", "-Command", "$PROFILE.CurrentUserAllHosts"], {
+          timeout: 5_000,
+        });
+        return stdout.trim();
+      } catch {
+        return undefined;
+      }
     case Shell.Zsh:
-      return path.join(os.homedir(), ".zshrc");
+      return path.join(userZdotdir, ".zshrc");
     case Shell.Fish:
       return path.join(os.homedir(), ".config", "fish", "config.fish");
     case Shell.Xonsh:
@@ -124,17 +93,18 @@ const getProfilePath = async (shell: Shell): Promise<string | undefined> => {
   }
 };
 
-export const createShellConfigs = async () => {
+export const createShellConfigs = async (profileShell?: Shell, customProfile?: string) => {
   for (const shell of supportedShells) {
     const shellConfigName = getShellConfigName(shell);
     if (shellConfigName == null) continue;
     await fsAsync.mkdir(path.join(initResourcesPath, shell), { recursive: true });
-    await fsAsync.writeFile(path.join(initResourcesPath, shell, shellConfigName), getShellConfig(shell));
+    await fsAsync.writeFile(path.join(initResourcesPath, shell, shellConfigName), getShellConfig(shell, shell === profileShell ? customProfile : undefined));
   }
 };
 
 const getShellConfigName = (shell: Shell) => {
   switch (shell) {
+    case Shell.Sh:
     case Shell.Bash:
       return "init.sh";
     case Shell.Powershell:
@@ -153,9 +123,8 @@ const getShellConfigName = (shell: Shell) => {
   }
 };
 
-export const setupZshDotfiles = async (underTest: boolean) => {
-  const dir = zdotdir(underTest);
-  await fsAsync.mkdir(dir, { recursive: true });
+export const setupZshDotfiles = async () => {
+  const dir = zdotdir();
   await fsAsync.cp(path.join(shellResourcesPath, "shellIntegration-rc.zsh"), path.join(dir, ".zshrc"), { force: true });
   await fsAsync.cp(path.join(shellResourcesPath, "shellIntegration-profile.zsh"), path.join(dir, ".zprofile"), { force: true });
   await fsAsync.cp(path.join(shellResourcesPath, "shellIntegration-env.zsh"), path.join(dir, ".zshenv"), { force: true });
@@ -187,7 +156,7 @@ export const inferShell = async () => {
   // try getting shell from env
   try {
     const name = path.parse(process.env.SHELL ?? "").name;
-    const shellName = supportedShells.find((shell) => name.includes(shell));
+    const shellName = supportedShells.find((shell) => name === shell);
     if (shellName) return shellName;
   } catch {
     /* empty */
@@ -196,7 +165,7 @@ export const inferShell = async () => {
   // try getting shell from parent process
   const processResult = await findParentProcess();
   const name = processResult?.name;
-  return name != null ? supportedShells.find((shell) => name.includes(shell)) : undefined;
+  return name != null ? supportedShells.find((shell) => path.parse(name).name === shell) : undefined;
 };
 
 export const gitBashPath = async (): Promise<string> => {
@@ -274,70 +243,96 @@ export const getShellPromptRewrites = (shell: Shell) => shell == Shell.Nushell |
 
 export const getShellSourceCommand = (shell: Shell): string => {
   switch (shell) {
+    case Shell.Sh:
+      return `. "$HOME/.inshellisense2/init/sh/init.sh"`;
     case Shell.Bash:
-      return `[ -f ~/.inshellisense/init/bash/init.sh ] && source ~/.inshellisense/init/bash/init.sh`;
+      return `[ -f ~/.inshellisense2/init/bash/init.sh ] && source ~/.inshellisense2/init/bash/init.sh`;
     case Shell.Powershell:
-      return `if ( Test-Path '~/.inshellisense/init/powershell/init.ps1' -PathType Leaf ) { . ~/.inshellisense/init/powershell/init.ps1 }`;
     case Shell.Pwsh:
-      return `if ( Test-Path '~/.inshellisense/init/pwsh/init.ps1' -PathType Leaf ) { . ~/.inshellisense/init/pwsh/init.ps1 }`;
+      return `if (Test-Path '${path.join(initResourcesPath, shell, "init.ps1").replaceAll("'", "''")}' -PathType Leaf) { . '${path
+        .join(initResourcesPath, shell, "init.ps1")
+        .replaceAll("'", "''")}' }`;
     case Shell.Zsh:
-      return `[[ -f ~/.inshellisense/init/zsh/init.zsh ]] && source ~/.inshellisense/init/zsh/init.zsh`;
+      return `[[ -f ~/.inshellisense2/init/zsh/init.zsh ]] && source ~/.inshellisense2/init/zsh/init.zsh`;
     case Shell.Fish:
-      return `test -f ~/.inshellisense/init/fish/init.fish && source ~/.inshellisense/init/fish/init.fish`;
+      return `test -f ~/.inshellisense2/init/fish/init.fish && source ~/.inshellisense2/init/fish/init.fish`;
     case Shell.Xonsh:
-      return `p"~/.inshellisense/init/xonsh/init.xsh".exists() && source "~/.inshellisense/init/xonsh/init.xsh"`;
+      return `p"~/.inshellisense2/init/xonsh/init.xsh".exists() && source "~/.inshellisense2/init/xonsh/init.xsh"`;
     case Shell.Nushell:
-      return `if ( '~/.inshellisense/init/nu/init.nu' | path exists ) { source ~/.inshellisense/init/nu/init.nu }`;
+      return `if ( '~/.inshellisense2/init/nu/init.nu' | path exists ) { source ~/.inshellisense2/init/nu/init.nu }`;
   }
   return "";
 };
 
-export const getShellConfig = (shell: Shell): string => {
+export const getShellConfig = (shell: Shell, customProfile?: string): string => {
+  const quote = (value: string) => `'${value.replaceAll("'", shell === Shell.Pwsh || shell === Shell.Powershell ? "''" : "'\\''")}'`;
+  const executable = sea.isSea() ? quote(process.execPath) : `${quote(process.execPath)} ${quote(fileURLToPath(new URL("../index.js", import.meta.url)))}`;
   switch (shell) {
     case Shell.Zsh:
-      return `if [[ -z "\${ISTERM}" && $- = *i* && $- != *c* && -z "\${VSCODE_RESOLVING_ENVIRONMENT}" ]]; then
+      return `case ":$PATH:" in *:${quote(path.dirname(process.execPath))}:*) ;; *) export PATH=${quote(path.dirname(process.execPath))}:$PATH ;; esac
+if [[ -z "\${ISTERM}" && $- = *i* && $- != *c* && -t 0 && -t 1 && -t 2 && -z "\${VSCODE_RESOLVING_ENVIRONMENT}" ]]; then
   if [[ -o login ]]; then
-    is -s zsh --login ; exit
+    exec ${executable} -s zsh --login
   else
-    is -s zsh ; exit
+    exec ${executable} -s zsh
   fi
 fi`;
+    case Shell.Sh:
+      return `case ":$PATH:" in *:${quote(path.dirname(process.execPath))}:*) ;; *) export PATH=${quote(path.dirname(process.execPath))}:$PATH ;; esac
+case "$-" in
+  *i*)
+    if [ "\${0##*/}" != sh ] && [ "\${0##*/}" != -sh ]; then return; fi
+    if [ -z "\${ISTERM:-}" ] && [ -t 0 ] && [ -t 1 ] && [ -t 2 ] && [ -z "\${VSCODE_RESOLVING_ENVIRONMENT:-}" ]; then
+      if [ "\${INSHELLISENSE2_SH_LOGIN:-}" = 1 ]; then
+        unset INSHELLISENSE2_SH_LOGIN
+        exec ${executable} -s sh --login
+      fi
+      case "$0" in
+        -*) exec ${executable} -s sh --login ;;
+        *) exec ${executable} -s sh ;;
+      esac
+    fi
+    ;;
+esac`;
     case Shell.Bash:
-      return `if [[ -z "\${ISTERM}" && $- = *i* && $- != *c* && -z "\${VSCODE_RESOLVING_ENVIRONMENT}" ]]; then
-  shopt -q login_shell
-  login_shell=$?
-  if [ $login_shell -eq 0 ]; then
-    is -s bash --login ; exit
+      return `case ":$PATH:" in *:${quote(path.dirname(process.execPath))}:*) ;; *) export PATH=${quote(path.dirname(process.execPath))}:$PATH ;; esac
+if [[ -n "\${BASH_VERSION}" && -z "\${ISTERM}" && $- = *i* && $- != *c* && -t 0 && -t 1 && -t 2 && -z "\${VSCODE_RESOLVING_ENVIRONMENT}" ]]; then
+  if shopt -q login_shell; then
+    exec ${executable} -s bash --login
   else
-    is -s bash ; exit
+    exec ${executable} -s bash
   fi 
 fi`;
     case Shell.Powershell:
     case Shell.Pwsh:
-      return `$__IsCommandFlag = ([Environment]::GetCommandLineArgs() | Where-Object { $_ -imatch '^-c(ommand)?$' }).Count -gt 0
+      return `if (${quote(path.dirname(process.execPath))} -notin ($env:PATH -split [regex]::Escape([IO.Path]::PathSeparator))) { $env:PATH = ${quote(
+        path.dirname(process.execPath),
+      )} + [IO.Path]::PathSeparator + $env:PATH }
+$__IsCommandFlag = ([Environment]::GetCommandLineArgs() | Where-Object { $_ -imatch '^-(c(ommand)?|e(ncodedcommand)?|f(ile)?|noni(nteractive)?)$' }).Count -gt 0
 $__IsNoExitFlag = ([Environment]::GetCommandLineArgs() | Where-Object { $_ -imatch '^-noe(xit)?$' }).Count -gt 0
 $__IsInteractive = -not $__IsCommandFlag -or ($__IsCommandFlag -and $__IsNoExitFlag)
-if ([string]::IsNullOrEmpty($env:ISTERM) -and [Environment]::UserInteractive -and $__IsInteractive -and [string]::IsNullOrEmpty($env:VSCODE_RESOLVING_ENVIRONMENT)) {
-  is -s ${shell}
-  Stop-Process -Id $pid
+if ([string]::IsNullOrEmpty($env:ISTERM) -and -not [Console]::IsInputRedirected -and -not [Console]::IsOutputRedirected -and ([Environment]::UserInteractive -or $env:SSH_TTY) -and $__IsInteractive -and [string]::IsNullOrEmpty($env:VSCODE_RESOLVING_ENVIRONMENT)) {
+  ${customProfile ? `$env:INSHELLISENSE2_PS_PROFILE = ${quote(path.resolve(customProfile))}` : ""}
+  & ${executable} -s ${shell}
+  exit $LASTEXITCODE
 }`;
     case Shell.Fish:
       return `if test -z "$ISTERM" && status --is-interactive && test -z "$VSCODE_RESOLVING_ENVIRONMENT"
   if status --is-login
-    is -s fish --login ; kill %self
+    ${executable} -s fish --login ; kill %self
   else
-    is -s fish ; kill %self
+    ${executable} -s fish ; kill %self
   end 
 end`;
     case Shell.Xonsh:
       return `if 'ISTERM' not in \${...} and $XONSH_INTERACTIVE and 'VSCODE_RESOLVING_ENVIRONMENT' not in \${...}:
     if $XONSH_LOGIN:
-        is -s xonsh --login ; exit
+        ${executable} -s xonsh --login ; exit
     else:
-        is -s xonsh ; exit`;
+        ${executable} -s xonsh ; exit`;
     case Shell.Nushell:
       return `if "ISTERM" not-in $env and $nu.is-interactive and "VSCODE_RESOLVING_ENVIRONMENT" not-in $env {
-    if $nu.is-login { is -s nu --login ; exit } else { is -s nu ; exit }
+    if $nu.is-login { ${executable} -s nu --login ; exit } else { ${executable} -s nu ; exit }
 }`;
   }
   return "";

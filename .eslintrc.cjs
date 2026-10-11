@@ -24,7 +24,13 @@ module.exports = {
     sourceType: "module",
   },
   plugins: ["@typescript-eslint", "react", "header"],
-  rules: { "header/header": [2, "line", [" Copyright (c) Microsoft Corporation.", " Licensed under the MIT License."]] },
+  rules: {
+    "header/header": [
+      2,
+      "line",
+      [{ pattern: " Copyright \\(c\\) (Microsoft Corporation|inshellisense2 contributors)\\." }, " Licensed under the MIT License."],
+    ],
+  },
   settings: {
     react: {
       version: "detect",
